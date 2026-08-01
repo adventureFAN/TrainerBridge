@@ -1,4 +1,3 @@
-from pathlib import Path
 import vdf
 
 from core.models import GameProfile
@@ -13,6 +12,7 @@ def is_ignored_app(name):
     ]
 
     for ignored in ignored_names:
+
         if name.startswith(ignored):
             return True
 
@@ -22,7 +22,6 @@ def is_ignored_app(name):
 def find_games(libraries):
 
     games = []
-
     found_appids = set()
 
     for library in libraries:
@@ -32,11 +31,19 @@ def find_games(libraries):
         if not steamapps.exists():
             continue
 
-        for manifest in steamapps.glob("appmanifest_*.acf"):
+        for manifest in steamapps.glob(
+            "appmanifest_*.acf"
+        ):
 
             try:
-                with open(manifest, "r", encoding="utf-8") as f:
-                    data = vdf.load(f)
+
+                with open(
+                    manifest,
+                    "r",
+                    encoding="utf-8"
+                ) as file:
+
+                    data = vdf.load(file)
 
                 app = data["AppState"]
 
@@ -52,24 +59,29 @@ def find_games(libraries):
                     continue
 
                 prefix = (
-                    library /
-                    "steamapps" /
-                    "compatdata" /
-                    appid
+                    library
+                    / "steamapps"
+                    / "compatdata"
+                    / appid
                 )
 
-                game = GameProfile(
-                    name=name,
-                    appid=appid,
-                    library=library,
-                    prefix=prefix if prefix.exists() else None
+                games.append(
+                    GameProfile(
+                        name=name,
+                        appid=appid,
+                        library=library,
+                        prefix=(
+                            prefix
+                            if prefix.exists()
+                            else None
+                        )
+                    )
                 )
 
-                games.append(game)
+            except Exception as error:
 
-            except Exception as e:
                 print(
-                    f"Fehler bei {manifest}: {e}"
+                    f"Failed to read {manifest}: {error}"
                 )
 
     return games

@@ -4,7 +4,10 @@ import subprocess
 
 class SteamGameLauncher:
 
-    def build_command(self, appid):
+    def build_command(
+        self,
+        appid
+    ):
 
         steam_uri = (
             f"steam://rungameid/{appid}"
@@ -34,7 +37,8 @@ class SteamGameLauncher:
                     "com.valvesoftware.Steam"
                 ],
                 stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL
+                stderr=subprocess.DEVNULL,
+                check=False
             )
 
             if flatpak_check.returncode == 0:
@@ -58,26 +62,28 @@ class SteamGameLauncher:
             ]
 
         raise RuntimeError(
-            "Steam konnte nicht gestartet werden. "
-            "Weder Steam, Flatpak-Steam noch xdg-open wurden gefunden."
+            "Steam could not be started. "
+            "TrainerBridge could not find Steam, "
+            "Flatpak Steam, or xdg-open."
         )
 
 
-    def launch(self, appid):
+    def launch(
+        self,
+        appid
+    ):
 
         command = self.build_command(
             appid
         )
 
-        print("Steam-Startbefehl:")
+        print("Steam launch command:")
         print(" ".join(command))
         print()
 
-        process = subprocess.Popen(
+        return subprocess.Popen(
             command,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             start_new_session=True
         )
-
-        return process

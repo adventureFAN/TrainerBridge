@@ -14,81 +14,93 @@ class TrainerSessionManager:
         self.process_monitor = ProcessMonitor()
 
 
-    def start(
+    def launch_game(
         self,
         game,
-        timeout=120,
-        trainer_delay=8
+        timeout=120
     ):
 
         print(
-            f"Prüfe, ob {game.name} bereits läuft..."
+            f"Checking whether {game.name} is already running..."
         )
 
-        runtime = self.process_monitor.get_runtime(
+        runtime_before = self.process_monitor.get_runtime(
             game.appid
         )
 
         game_process = None
-        game_was_running = runtime is not None
+        game_was_running = runtime_before is not None
 
-
-        if runtime:
+        if game_was_running:
 
             print(
-                "Das Spiel läuft bereits."
+                "The game is already running. "
+                "Verifying the game executable..."
             )
 
         else:
 
             print(
-                "Das Spiel läuft noch nicht."
+                "The game is not running yet."
             )
 
             print(
-                "Starte das Spiel über Steam..."
+                "Starting the game through Steam..."
             )
 
             game_process = self.game_launcher.launch(
                 game.appid
             )
 
-            print(
-                "Warte auf den Steam-/Proton-Start..."
-            )
+        print(
+            "Waiting for the actual game executable "
+            "to remain stable..."
+        )
 
-            runtime = self.process_monitor.wait_for_game(
-                game.appid,
-                timeout=timeout,
-                interval=1
-            )
-
+        runtime = self.process_monitor.wait_for_game(
+            game.appid,
+            timeout=timeout,
+            interval=0.5,
+            stable_seconds=5
+        )
 
         if not runtime:
 
             raise TimeoutError(
-                f"{game.name} wurde innerhalb von "
-                f"{timeout} Sekunden nicht erkannt."
+                f"{game.name} was not detected within "
+                f"{timeout} seconds."
             )
-
 
         print()
-        print("Spiel wurde erkannt:")
+        print("Game detected:")
         print(runtime)
 
+        return {
+            "action": "game",
+            "game": game,
+            "runtime": runtime,
+            "game_process": game_process,
+            "trainer_process": None,
+            "game_was_running": game_was_running
+        }
 
-        if trainer_delay > 0:
 
-            print()
-            print(
-                f"Warte noch {trainer_delay} Sekunden, "
-                "damit Proton vollständig gestartet ist..."
+    def launch_trainer(
+        self,
+        game
+    ):
+
+        runtime = self.process_monitor.get_runtime(
+            game.appid
+        )
+
+        if not runtime:
+
+            raise RuntimeError(
+                "The actual game executable is not running. "
+                "Launch and verify the game before starting "
+                "the trainer."
             )
-
-            time.sleep(
-                trainer_delay
-            )
-
 
         steam_info = get_steam_info()
 
@@ -96,33 +108,68 @@ class TrainerSessionManager:
             "install_path"
         ]
 
-
         if not steam_install_path:
 
             raise RuntimeError(
-                "Steam-Installationspfad wurde nicht gefunden."
+                "The Steam installation path was not found."
             )
-
 
         trainer_launcher = TrainerLauncher(
             steam_install_path
         )
 
-
         print()
         print(
-            "Starte den Trainer im laufenden Spiel-Prefix..."
+            "Starting the trainer inside the running game prefix..."
         )
 
         trainer_process = trainer_launcher.launch(
             game
         )
 
-
         return {
+            "action": "trainer",
             "game": game,
             "runtime": runtime,
-            "game_process": game_process,
+            "game_process": None,
             "trainer_process": trainer_process,
-            "game_was_running": game_was_running
+            "game_was_running": True
+        }
+
+
+    def start(
+        self,
+        game,
+        timeout=120,
+        trainer_delay=8
+    ):
+
+        game_session = self.launch_game(
+            game,
+            timeout=timeout
+        )
+
+        if trainer_delay > 0:
+
+            print()
+            print(
+                f"Waiting another {trainer_delay} seconds "
+                "for the game to finish starting..."
+            )
+
+            time.sleep(
+                trainer_delay
+            )
+
+        trainer_session = self.launch_trainer(
+            game
+        )
+
+        return {
+            "action": "combined",
+            "game": game,
+            "runtime": trainer_session["runtime"],
+            "game_process": game_session["game_process"],
+            "trainer_process": trainer_session["trainer_process"],
+            "game_was_running": game_session["game_was_running"]
         }
