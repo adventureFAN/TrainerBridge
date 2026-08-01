@@ -1,6 +1,8 @@
 import shutil
 import subprocess
 
+from core.host_process import host_environment
+
 
 class SteamGameLauncher:
 
@@ -38,7 +40,8 @@ class SteamGameLauncher:
                 ],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
-                check=False
+                check=False,
+                env=host_environment()
             )
 
             if flatpak_check.returncode == 0:
@@ -85,5 +88,6 @@ class SteamGameLauncher:
             command,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            start_new_session=True
+            start_new_session=True,
+            env=host_environment()
         )

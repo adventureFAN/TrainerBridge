@@ -8,6 +8,7 @@ import subprocess
 from dataclasses import dataclass
 
 from core.paths import CACHE_DIR
+from core.host_process import host_environment
 from core.process_monitor import ProcessMonitor
 
 
@@ -221,7 +222,8 @@ class ProtontricksManager:
                 ],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
-                check=False
+                check=False,
+                env=host_environment()
             )
 
             if result.returncode == 0:
@@ -263,7 +265,7 @@ class ProtontricksManager:
         force_english=False
     ):
 
-        environment = os.environ.copy()
+        environment = host_environment()
 
         if force_english:
 

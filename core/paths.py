@@ -19,6 +19,7 @@ LEGACY_DATA_DIR = (
 )
 
 CACHE_DIR = DATA_DIR / "cache"
+LOG_DIR = DATA_DIR / "logs"
 TRAINER_DIR = DATA_DIR / "trainers"
 CONFIG_FILE = DATA_DIR / "trainers.json"
 
@@ -96,6 +97,11 @@ def migrate_legacy_data():
     )
 
     CACHE_DIR.mkdir(
+        parents=True,
+        exist_ok=True
+    )
+
+    LOG_DIR.mkdir(
         parents=True,
         exist_ok=True
     )

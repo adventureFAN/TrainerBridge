@@ -1,0 +1,26 @@
+TrainerBridge — Third-Party Notices
+
+This beta build uses the following third-party software:
+
+Python
+https://www.python.org/
+Python Software Foundation License
+
+PySide6 / Qt for Python
+https://doc.qt.io/qtforpython-6/
+GNU Lesser General Public License v3 and applicable Qt third-party licenses
+
+vdf
+https://github.com/ValvePython/vdf
+MIT License
+
+PyInstaller (build-time tooling)
+https://pyinstaller.org/
+GPL with the PyInstaller bootloader exception
+
+AppImageKit appimagetool (build-time tooling)
+https://github.com/AppImage/AppImageKit
+MIT License
+
+This file is an informational beta notice. Full license texts and a final
+project license must be included before a public production release.

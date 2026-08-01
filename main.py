@@ -1,3 +1,4 @@
+import logging
 import sys
 from pathlib import Path
 
@@ -11,7 +12,10 @@ from PySide6.QtCore import (
     Slot
 )
 
-from PySide6.QtGui import QAction
+from PySide6.QtGui import (
+    QAction,
+    QIcon
+)
 
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -39,12 +43,20 @@ from PySide6.QtWidgets import (
     QWidget
 )
 
+from about_dialog import AboutDialog
 from components_dialog import ComponentsDialog
 
+from core.logging_setup import setup_logging
 from core.process_monitor import ProcessMonitor
+from core.resources import resource_path
 from core.scanner import scan_all_games
 from core.session_manager import TrainerSessionManager
 from core.storage import import_trainer as store_trainer
+from core.version import (
+    APP_DESCRIPTION,
+    APP_DISPLAY_VERSION,
+    APP_NAME
+)
 
 
 STATUS_NAMES = {
@@ -64,6 +76,14 @@ STATUS_ROLE = int(
 TRAINER_REQUIREMENTS_NOTICE_KEY = (
     "notices/hide_trainer_requirements"
 )
+
+
+MAIN_GEOMETRY_KEY = "main/geometry"
+MAIN_WINDOW_STATE_KEY = "main/window_state"
+MAIN_SPLITTER_SIZES_KEY = "main/splitter_sizes"
+MAIN_STATUS_FILTER_KEY = "main/status_filter"
+MAIN_SEARCH_TEXT_KEY = "main/search_text"
+MAIN_SELECTED_APPID_KEY = "main/selected_appid"
 
 
 class SessionWorker(QObject):
@@ -139,9 +159,15 @@ class MainWindow(QMainWindow):
         super().__init__()
 
         self.settings = QSettings(
-            "TrainerBridge",
-            "TrainerBridge"
+            APP_NAME,
+            APP_NAME
         )
+
+        self.logger = logging.getLogger(
+            APP_NAME
+        )
+
+        self.saved_selected_appid = None
 
         self.games = []
         self.selected_game = None
@@ -155,7 +181,17 @@ class MainWindow(QMainWindow):
         self.verified_game_appid = None
 
         self.setWindowTitle(
-            "TrainerBridge"
+            f"{APP_NAME} {APP_DISPLAY_VERSION}"
+        )
+
+        self.setWindowIcon(
+            QIcon(
+                str(
+                    resource_path(
+                        "assets/trainerbridge.png"
+                    )
+                )
+            )
         )
 
         self.setMinimumSize(
@@ -165,6 +201,7 @@ class MainWindow(QMainWindow):
 
         self._build_interface()
         self._build_menu()
+        self._restore_ui_state()
 
         QTimer.singleShot(
             0,
@@ -181,7 +218,9 @@ class MainWindow(QMainWindow):
             1000
         )
 
-        self.scan_games()
+        self.scan_games(
+            select_appid=self.saved_selected_appid
+        )
 
 
     def _build_interface(self):
@@ -241,8 +280,7 @@ class MainWindow(QMainWindow):
         )
 
         subtitle = QLabel(
-            "Launch Steam games running through Proton "
-            "together with their Windows trainers"
+            APP_DESCRIPTION
         )
 
         subtitle.setStyleSheet(
@@ -352,9 +390,11 @@ class MainWindow(QMainWindow):
             search_layout
         )
 
-        splitter = QSplitter(
+        self.main_splitter = QSplitter(
             Qt.Orientation.Horizontal
         )
+
+        splitter = self.main_splitter
 
         splitter.setChildrenCollapsible(
             False
@@ -670,6 +710,172 @@ class MainWindow(QMainWindow):
             requirements_action
         )
 
+        help_menu.addSeparator()
+
+        about_action = QAction(
+            f"About {APP_NAME}",
+            self
+        )
+
+        about_action.triggered.connect(
+            self._show_about_dialog
+        )
+
+        help_menu.addAction(
+            about_action
+        )
+
+
+    def _show_about_dialog(
+        self,
+        checked=False
+    ):
+
+        del checked
+
+        dialog = AboutDialog(
+            self
+        )
+
+        dialog.exec()
+
+
+    def _restore_ui_state(self):
+
+        geometry = self.settings.value(
+            MAIN_GEOMETRY_KEY
+        )
+
+        if geometry:
+
+            self.restoreGeometry(
+                geometry
+            )
+
+        window_state = self.settings.value(
+            MAIN_WINDOW_STATE_KEY
+        )
+
+        if window_state:
+
+            self.restoreState(
+                window_state
+            )
+
+        splitter_sizes = self.settings.value(
+            MAIN_SPLITTER_SIZES_KEY
+        )
+
+        if isinstance(splitter_sizes, (list, tuple)):
+
+            try:
+
+                sizes = [
+                    int(value)
+                    for value in splitter_sizes
+                ]
+
+            except (TypeError, ValueError):
+
+                sizes = []
+
+            if len(sizes) == 2:
+
+                self.main_splitter.setSizes(
+                    sizes
+                )
+
+        saved_status = self.settings.value(
+            MAIN_STATUS_FILTER_KEY,
+            "ALL"
+        )
+
+        status_index = self.status_filter.findData(
+            saved_status
+        )
+
+        if status_index >= 0:
+
+            self.status_filter.setCurrentIndex(
+                status_index
+            )
+
+        saved_search = self.settings.value(
+            MAIN_SEARCH_TEXT_KEY,
+            ""
+        )
+
+        self.search_field.setText(
+            str(saved_search or "")
+        )
+
+        selected_appid = self.settings.value(
+            MAIN_SELECTED_APPID_KEY
+        )
+
+        if selected_appid:
+
+            self.saved_selected_appid = str(
+                selected_appid
+            )
+
+
+    def _save_ui_state(self):
+
+        self.settings.setValue(
+            MAIN_GEOMETRY_KEY,
+            self.saveGeometry()
+        )
+
+        self.settings.setValue(
+            MAIN_WINDOW_STATE_KEY,
+            self.saveState()
+        )
+
+        self.settings.setValue(
+            MAIN_SPLITTER_SIZES_KEY,
+            self.main_splitter.sizes()
+        )
+
+        self.settings.setValue(
+            MAIN_STATUS_FILTER_KEY,
+            self.status_filter.currentData()
+        )
+
+        self.settings.setValue(
+            MAIN_SEARCH_TEXT_KEY,
+            self.search_field.text()
+        )
+
+        selected_appid = self._get_selected_appid()
+
+        if selected_appid:
+
+            self.settings.setValue(
+                MAIN_SELECTED_APPID_KEY,
+                str(selected_appid)
+            )
+
+        else:
+
+            self.settings.remove(
+                MAIN_SELECTED_APPID_KEY
+            )
+
+        self.settings.sync()
+
+
+    def closeEvent(
+        self,
+        event
+    ):
+
+        self._save_ui_state()
+
+        super().closeEvent(
+            event
+        )
+
 
     def _show_trainer_requirements_notice_if_needed(
         self
@@ -746,6 +952,10 @@ class MainWindow(QMainWindow):
         self,
         message
     ):
+
+        self.logger.info(
+            message
+        )
 
         self.log_output.append(
             message
@@ -1669,16 +1879,40 @@ class MainWindow(QMainWindow):
 
 def main():
 
+    log_file = setup_logging()
+
+    print(
+        f"Log file: {log_file}"
+    )
+
     application = QApplication(
         sys.argv
     )
 
     application.setOrganizationName(
-        "TrainerBridge"
+        APP_NAME
     )
 
     application.setApplicationName(
-        "TrainerBridge"
+        APP_NAME
+    )
+
+    application.setApplicationDisplayName(
+        APP_NAME
+    )
+
+    application.setApplicationVersion(
+        APP_DISPLAY_VERSION
+    )
+
+    application.setWindowIcon(
+        QIcon(
+            str(
+                resource_path(
+                    "assets/trainerbridge.png"
+                )
+            )
+        )
     )
 
     window = MainWindow()

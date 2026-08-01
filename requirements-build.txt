@@ -1,0 +1,3 @@
+PySide6>=6.8,<7
+vdf>=3.4,<4
+PyInstaller>=6.15,<7

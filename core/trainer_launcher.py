@@ -1,6 +1,7 @@
-import os
 import subprocess
 from pathlib import Path
+
+from core.host_process import host_environment
 
 
 class TrainerLauncher:
@@ -94,7 +95,7 @@ class TrainerLauncher:
         game
     ):
 
-        environment = os.environ.copy()
+        environment = host_environment()
 
         environment[
             "STEAM_COMPAT_DATA_PATH"
