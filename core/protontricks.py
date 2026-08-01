@@ -328,6 +328,37 @@ class ProtontricksManager:
         return output
 
 
+    def _run_capture_allow_failure(
+        self,
+        *arguments,
+        force_english=True
+    ):
+
+        command = self.build_command(
+            *arguments
+        )
+
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            env=self._build_environment(
+                force_english=force_english
+            ),
+            check=False
+        )
+
+        output = self._combine_output(
+            result.stdout,
+            result.stderr
+        )
+
+        return (
+            result.returncode,
+            output
+        )
+
+
     def get_version(self):
 
         output = self._run_capture(
@@ -516,31 +547,114 @@ class ProtontricksManager:
         return None
 
 
+    def _parse_registry_windows_version(
+        self,
+        output
+    ):
+
+        pattern = re.compile(
+            r"\bVersion\s+REG_SZ\s+([a-zA-Z0-9]+)\b",
+            re.IGNORECASE
+        )
+
+        for raw_line in output.splitlines():
+
+            match = pattern.search(
+                raw_line
+            )
+
+            if not match:
+                continue
+
+            candidate = match.group(1).lower()
+
+            candidate = WINECFG_VERSION_TO_VERB.get(
+                candidate,
+                candidate
+            )
+
+            if candidate in WINDOWS_VERSION_VERBS:
+                return candidate
+
+        return None
+
+
     def get_windows_version(
         self,
         appid
     ):
 
-        output = self._run_capture(
-            "-c",
-            "winecfg /v",
-            str(appid),
-            force_english=True
+        winecfg_return_code, winecfg_output = (
+            self._run_capture_allow_failure(
+                "-c",
+                "winecfg /v",
+                str(appid),
+                force_english=True
+            )
         )
 
-        version = self._parse_windows_version(
-            output
-        )
+        if winecfg_return_code == 0:
 
-        if not version:
-
-            raise ProtontricksError(
-                "TrainerBridge could not detect the current "
-                "Windows compatibility version of the prefix. "
-                "The prefix was not modified."
+            version = self._parse_windows_version(
+                winecfg_output
             )
 
-        return version
+            if version:
+                return version
+
+        registry_return_code, registry_output = (
+            self._run_capture_allow_failure(
+                "-c",
+                (
+                    'reg query "HKCU\\Software\\Wine" '
+                    '/v Version'
+                ),
+                str(appid),
+                force_english=True
+            )
+        )
+
+        if registry_return_code == 0:
+
+            version = self._parse_registry_windows_version(
+                registry_output
+            )
+
+            if version:
+                return version
+
+        registry_output_lower = registry_output.lower()
+
+        missing_value_markers = (
+            "unable to find",
+            "cannot find",
+            "not found",
+            "specified registry key",
+            "specified registry value"
+        )
+
+        registry_value_is_missing = any(
+            marker in registry_output_lower
+            for marker in missing_value_markers
+        )
+
+        if (
+            registry_value_is_missing
+            or
+            not registry_output.strip()
+        ):
+
+            # Modern Wine and Proton prefixes use Windows 10
+            # when no explicit global Version override exists.
+            return "win10"
+
+        raise ProtontricksError(
+            "TrainerBridge could not detect the current "
+            "Windows compatibility version of the prefix. "
+            "The prefix was not modified.\n\n"
+            f"winecfg output:\n{winecfg_output}\n\n"
+            f"Registry output:\n{registry_output}"
+        )
 
 
     def set_windows_version(

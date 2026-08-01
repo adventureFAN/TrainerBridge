@@ -3,6 +3,7 @@ from pathlib import Path
 
 from PySide6.QtCore import (
     QObject,
+    QSettings,
     QThread,
     QTimer,
     Qt,
@@ -10,9 +11,13 @@ from PySide6.QtCore import (
     Slot
 )
 
+from PySide6.QtGui import QAction
+
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
+    QCheckBox,
+    QComboBox,
     QFileDialog,
     QFormLayout,
     QFrame,
@@ -49,6 +54,16 @@ STATUS_NAMES = {
     "PROTON_DETECTED": "Proton detected",
     "UNKNOWN": "Unknown"
 }
+
+
+STATUS_ROLE = int(
+    Qt.ItemDataRole.UserRole
+) + 1
+
+
+TRAINER_REQUIREMENTS_NOTICE_KEY = (
+    "notices/hide_trainer_requirements"
+)
 
 
 class SessionWorker(QObject):
@@ -123,6 +138,11 @@ class MainWindow(QMainWindow):
 
         super().__init__()
 
+        self.settings = QSettings(
+            "TrainerBridge",
+            "TrainerBridge"
+        )
+
         self.games = []
         self.selected_game = None
 
@@ -144,6 +164,12 @@ class MainWindow(QMainWindow):
         )
 
         self._build_interface()
+        self._build_menu()
+
+        QTimer.singleShot(
+            0,
+            self._show_trainer_requirements_notice_if_needed
+        )
 
         self.process_timer = QTimer(self)
 
@@ -252,6 +278,51 @@ class MainWindow(QMainWindow):
             self.apply_filter
         )
 
+        status_filter_label = QLabel(
+            "Status:"
+        )
+
+        self.status_filter = QComboBox()
+
+        self.status_filter.addItem(
+            "All games",
+            "ALL"
+        )
+
+        self.status_filter.addItem(
+            "All Proton games",
+            "PROTON"
+        )
+
+        self.status_filter.addItem(
+            "Ready with trainer",
+            "READY_WITH_TRAINER"
+        )
+
+        self.status_filter.addItem(
+            "Ready — no trainer",
+            "READY"
+        )
+
+        self.status_filter.addItem(
+            "Proton detected",
+            "PROTON_DETECTED"
+        )
+
+        self.status_filter.addItem(
+            "Native Linux games",
+            "NATIVE"
+        )
+
+        self.status_filter.addItem(
+            "Unknown",
+            "UNKNOWN"
+        )
+
+        self.status_filter.currentIndexChanged.connect(
+            self.apply_filter
+        )
+
         self.rescan_button = QPushButton(
             "Rescan"
         )
@@ -263,6 +334,14 @@ class MainWindow(QMainWindow):
         search_layout.addWidget(
             self.search_field,
             1
+        )
+
+        search_layout.addWidget(
+            status_filter_label
+        )
+
+        search_layout.addWidget(
+            self.status_filter
         )
 
         search_layout.addWidget(
@@ -572,6 +651,97 @@ class MainWindow(QMainWindow):
         self._update_action_buttons()
 
 
+    def _build_menu(self):
+
+        help_menu = self.menuBar().addMenu(
+            "Help"
+        )
+
+        requirements_action = QAction(
+            "Trainer requirements notice",
+            self
+        )
+
+        requirements_action.triggered.connect(
+            self._show_trainer_requirements_notice
+        )
+
+        help_menu.addAction(
+            requirements_action
+        )
+
+
+    def _show_trainer_requirements_notice_if_needed(
+        self
+    ):
+
+        notice_hidden = self.settings.value(
+            TRAINER_REQUIREMENTS_NOTICE_KEY,
+            False,
+            type=bool
+        )
+
+        if notice_hidden:
+            return
+
+        self._show_trainer_requirements_notice()
+
+
+    def _show_trainer_requirements_notice(
+        self,
+        checked=False
+    ):
+
+        del checked
+
+        message_box = QMessageBox(
+            self
+        )
+
+        message_box.setIcon(
+            QMessageBox.Icon.Information
+        )
+
+        message_box.setWindowTitle(
+            "Windows trainer requirements"
+        )
+
+        message_box.setText(
+            "Some Windows trainers require additional "
+            "runtime components."
+        )
+
+        message_box.setInformativeText(
+            "Examples include .NET Framework, .NET/.NET Core "
+            "and Microsoft Visual C++ runtimes. TrainerBridge "
+            "cannot reliably determine which components a "
+            "specific trainer requires. Check the trainer "
+            "author's documentation and install only the "
+            "required components through Prefix Components.\n\n"
+            "Prefix changes can affect game compatibility."
+        )
+
+        do_not_show_again = QCheckBox(
+            "Don't show this message again"
+        )
+
+        message_box.setCheckBox(
+            do_not_show_again
+        )
+
+        message_box.setStandardButtons(
+            QMessageBox.StandardButton.Ok
+        )
+
+        message_box.exec()
+
+        if do_not_show_again.isChecked():
+
+            self.settings.setValue(
+                TRAINER_REQUIREMENTS_NOTICE_KEY,
+                True
+            )
+
     def _append_log(
         self,
         message
@@ -665,9 +835,7 @@ class MainWindow(QMainWindow):
 
         self._populate_game_tree()
 
-        self.apply_filter(
-            self.search_field.text()
-        )
+        self.apply_filter()
 
         if select_appid:
 
@@ -720,6 +888,30 @@ class MainWindow(QMainWindow):
                 game.appid
             )
 
+            item.setData(
+                0,
+                STATUS_ROLE,
+                game.status
+            )
+
+            if game.status == "NATIVE":
+
+                native_tooltip = (
+                    "TrainerBridge only supports Windows games "
+                    "running through Proton. This native Linux "
+                    "version is shown for transparency."
+                )
+
+                item.setToolTip(
+                    0,
+                    native_tooltip
+                )
+
+                item.setToolTip(
+                    3,
+                    native_tooltip
+                )
+
             self.game_tree.addTopLevelItem(
                 item
             )
@@ -727,10 +919,20 @@ class MainWindow(QMainWindow):
 
     def apply_filter(
         self,
-        text
+        *unused_arguments
     ):
 
-        search_text = text.strip().lower()
+        del unused_arguments
+
+        search_text = (
+            self.search_field.text()
+            .strip()
+            .lower()
+        )
+
+        selected_status = (
+            self.status_filter.currentData()
+        )
 
         for index in range(
             self.game_tree.topLevelItemCount()
@@ -749,15 +951,79 @@ class MainWindow(QMainWindow):
                 ]
             ).lower()
 
-            should_hide = (
-                search_text
-                and
-                search_text not in searchable_text
+            game_status = item.data(
+                0,
+                STATUS_ROLE
             )
 
-            item.setHidden(
-                bool(should_hide)
+            search_matches = (
+                not search_text
+                or
+                search_text in searchable_text
             )
+
+            if selected_status == "ALL":
+
+                status_matches = True
+
+            elif selected_status == "PROTON":
+
+                status_matches = (
+                    game_status != "NATIVE"
+                )
+
+            else:
+
+                status_matches = (
+                    game_status == selected_status
+                )
+
+            item.setHidden(
+                not (
+                    search_matches
+                    and
+                    status_matches
+                )
+            )
+
+        selected_items = (
+            self.game_tree.selectedItems()
+        )
+
+        if (
+            selected_items
+            and
+            selected_items[0].isHidden()
+        ):
+
+            self.game_tree.clearSelection()
+
+            self.selected_game = None
+
+            self._update_details()
+            self._update_action_buttons()
+
+            self._select_first_visible_game()
+
+
+    def _select_first_visible_game(self):
+
+        for index in range(
+            self.game_tree.topLevelItemCount()
+        ):
+
+            item = self.game_tree.topLevelItem(
+                index
+            )
+
+            if item.isHidden():
+                continue
+
+            self.game_tree.setCurrentItem(
+                item
+            )
+
+            return
 
 
     def _select_game_by_appid(
@@ -849,11 +1115,19 @@ class MainWindow(QMainWindow):
             game.appid
         )
 
-        self.status_value.setText(
-            STATUS_NAMES.get(
-                game.status,
-                game.status
+        status_text = STATUS_NAMES.get(
+            game.status,
+            game.status
+        )
+
+        if game.status == "NATIVE":
+
+            status_text += (
+                " — not supported by TrainerBridge"
             )
+
+        self.status_value.setText(
+            status_text
         )
 
         self.proton_value.setText(
@@ -1397,6 +1671,10 @@ def main():
 
     application = QApplication(
         sys.argv
+    )
+
+    application.setOrganizationName(
+        "TrainerBridge"
     )
 
     application.setApplicationName(
