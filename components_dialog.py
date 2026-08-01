@@ -1,5 +1,6 @@
 from PySide6.QtCore import (
     QObject,
+    QSettings,
     QThread,
     QTimer,
     Qt,
@@ -11,6 +12,7 @@ from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
     QDialog,
+    QFormLayout,
     QHBoxLayout,
     QHeaderView,
     QLabel,
@@ -32,6 +34,20 @@ from core.protontricks import (
     WINDOWS_VERSION_LABELS,
     WINDOWS_VERSION_VERBS
 )
+
+from core.version import APP_NAME
+
+
+COMPONENT_NAME_ROLE = int(Qt.ItemDataRole.UserRole)
+COMPONENT_INSTALLED_ROLE = COMPONENT_NAME_ROLE + 1
+COMPONENT_CATEGORY_ROLE = COMPONENT_NAME_ROLE + 2
+COMPONENT_DESCRIPTION_ROLE = COMPONENT_NAME_ROLE + 3
+
+COMPONENTS_GEOMETRY_KEY = "components/geometry"
+COMPONENTS_LOG_VISIBLE_KEY = "components/log_visible"
+COMPONENTS_CURRENT_TAB_KEY = "components/current_tab"
+COMPONENTS_INSTALLED_ONLY_KEY = "components/installed_only"
+
 
 
 class ComponentLoadWorker(QObject):
@@ -135,11 +151,21 @@ class ComponentsDialog(QDialog):
 
         super().__init__(parent)
 
+        self.settings = QSettings(
+            APP_NAME,
+            APP_NAME
+        )
+
         self.game = game
         self.manager = ProtontricksManager.detect()
 
         self.components = []
         self.component_trees = {}
+        self.component_items = {}
+        self.category_order = [
+            *SUPPORTED_CATEGORIES.keys(),
+            "all"
+        ]
 
         self.load_thread = None
         self.load_worker = None
@@ -165,6 +191,7 @@ class ComponentsDialog(QDialog):
         )
 
         self._build_interface()
+        self._restore_ui_state()
 
         QTimer.singleShot(
             0,
@@ -176,72 +203,151 @@ class ComponentsDialog(QDialog):
 
         main_layout = QVBoxLayout(self)
 
-        title_label = QLabel(
-            "Prefix Components"
+        main_layout.setContentsMargins(
+            12,
+            10,
+            12,
+            10
         )
 
-        title_label.setStyleSheet(
-            """
-            font-size: 20px;
-            font-weight: bold;
-            """
+        main_layout.setSpacing(
+            8
         )
 
-        game_label = QLabel(
-            f"{self.game.name} (AppID {self.game.appid})"
+        summary_layout = QFormLayout()
+
+        summary_layout.setContentsMargins(
+            0,
+            0,
+            0,
+            0
         )
 
-        prefix_label = QLabel(
-            str(self.game.prefix)
+        game_value = QLabel(
+            self.game.name
         )
 
-        prefix_label.setTextInteractionFlags(
+        appid_value = QLabel(
+            str(self.game.appid)
+        )
+
+        game_value.setTextInteractionFlags(
             Qt.TextInteractionFlag.TextSelectableByMouse
         )
 
-        prefix_label.setWordWrap(
+        appid_value.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+        )
+
+        summary_layout.addRow(
+            "Game:",
+            game_value
+        )
+
+        summary_layout.addRow(
+            "AppID:",
+            appid_value
+        )
+
+        main_layout.addLayout(
+            summary_layout
+        )
+
+        technical_header_layout = QHBoxLayout()
+
+        technical_header_layout.setContentsMargins(
+            0,
+            0,
+            0,
+            0
+        )
+
+        self.technical_details_button = QPushButton(
+            "Show technical details"
+        )
+
+        self.technical_details_button.clicked.connect(
+            self._toggle_technical_details
+        )
+
+        technical_header_layout.addStretch(
+            1
+        )
+
+        technical_header_layout.addWidget(
+            self.technical_details_button
+        )
+
+        main_layout.addLayout(
+            technical_header_layout
+        )
+
+        self.technical_details_widget = QWidget()
+
+        technical_layout = QFormLayout(
+            self.technical_details_widget
+        )
+
+        technical_layout.setContentsMargins(
+            0,
+            0,
+            0,
+            0
+        )
+
+        self.prefix_value = QLabel(
+            str(self.game.prefix or "-")
+        )
+
+        self.prefix_value.setWordWrap(
             True
         )
 
-        main_layout.addWidget(
-            title_label
-        )
-
-        main_layout.addWidget(
-            game_label
-        )
-
-        main_layout.addWidget(
-            prefix_label
+        self.prefix_value.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
         )
 
         if self.manager:
 
             protontricks_text = (
-                "Protontricks: "
-                f"{self.manager.installation.display_name}"
+                self.manager.installation.display_name
             )
 
         else:
 
             protontricks_text = (
-                "Protontricks was not found."
+                "Not found"
             )
 
         self.protontricks_label = QLabel(
             protontricks_text
         )
 
-        main_layout.addWidget(
+        self.windows_version_label = QLabel(
+            "Loading..."
+        )
+
+        technical_layout.addRow(
+            "Prefix:",
+            self.prefix_value
+        )
+
+        technical_layout.addRow(
+            "Protontricks:",
             self.protontricks_label
         )
 
-        self.windows_version_label = QLabel(
-            "Windows compatibility version: Loading..."
+        technical_layout.addRow(
+            "Windows version:",
+            self.windows_version_label
+        )
+
+        self.technical_details_widget.setVisible(
+            False
         )
 
         main_layout.addWidget(
-            self.windows_version_label
+            self.technical_details_widget
         )
 
         filter_layout = QHBoxLayout()
@@ -318,7 +424,15 @@ class ComponentsDialog(QDialog):
             self.apply_filter
         )
 
-        for category, title in SUPPORTED_CATEGORIES.items():
+        for category in self.category_order:
+
+            include_category = (
+                category == "all"
+            )
+
+            tree = self._create_component_tree(
+                include_category=include_category
+            )
 
             tab_widget = QWidget()
             tab_layout = QVBoxLayout(tab_widget)
@@ -330,71 +444,69 @@ class ComponentsDialog(QDialog):
                 0
             )
 
-            tree = QTreeWidget()
-
-            tree.setColumnCount(
-                3
-            )
-
-            tree.setHeaderLabels(
-                [
-                    "Component",
-                    "Status",
-                    "Description"
-                ]
-            )
-
-            tree.setSelectionBehavior(
-                QAbstractItemView
-                .SelectionBehavior
-                .SelectRows
-            )
-
-            tree.setSelectionMode(
-                QAbstractItemView
-                .SelectionMode
-                .ExtendedSelection
-            )
-
-            tree.setAlternatingRowColors(
-                True
-            )
-
-            tree.itemChanged.connect(
-                self._component_check_changed
-            )
-
-            header = tree.header()
-
-            header.setSectionResizeMode(
-                0,
-                QHeaderView.ResizeMode.ResizeToContents
-            )
-
-            header.setSectionResizeMode(
-                1,
-                QHeaderView.ResizeMode.ResizeToContents
-            )
-
-            header.setSectionResizeMode(
-                2,
-                QHeaderView.ResizeMode.Stretch
-            )
-
             tab_layout.addWidget(
                 tree
             )
 
             self.component_trees[category] = tree
 
+            if category == "all":
+
+                title = "All"
+
+            else:
+
+                title = SUPPORTED_CATEGORIES[
+                    category
+                ]
+
             self.category_tabs.addTab(
                 tab_widget,
-                title
+                self._escape_tab_title(title)
             )
 
         main_layout.addWidget(
             self.category_tabs,
             1
+        )
+
+        log_header_layout = QHBoxLayout()
+
+        log_header_layout.setContentsMargins(
+            0,
+            0,
+            0,
+            0
+        )
+
+        log_title = QLabel(
+            "Protontricks Output"
+        )
+
+        log_title.setStyleSheet(
+            "font-weight: bold;"
+        )
+
+        self.log_toggle_button = QPushButton()
+
+        self.log_toggle_button.clicked.connect(
+            self._toggle_log_visibility
+        )
+
+        log_header_layout.addWidget(
+            log_title
+        )
+
+        log_header_layout.addStretch(
+            1
+        )
+
+        log_header_layout.addWidget(
+            self.log_toggle_button
+        )
+
+        main_layout.addLayout(
+            log_header_layout
         )
 
         self.output_field = QTextEdit()
@@ -404,7 +516,7 @@ class ComponentsDialog(QDialog):
         )
 
         self.output_field.setMaximumHeight(
-            150
+            170
         )
 
         self.output_field.setPlaceholderText(
@@ -414,6 +526,9 @@ class ComponentsDialog(QDialog):
         main_layout.addWidget(
             self.output_field
         )
+
+        self.log_visible = True
+        self._set_log_visible(True)
 
         button_layout = QHBoxLayout()
 
@@ -470,6 +585,230 @@ class ComponentsDialog(QDialog):
         )
 
         self._update_buttons()
+
+
+    def _create_component_tree(
+        self,
+        include_category=False
+    ):
+
+        tree = QTreeWidget()
+
+        if include_category:
+
+            tree.setColumnCount(
+                4
+            )
+
+            tree.setHeaderLabels(
+                [
+                    "Component",
+                    "Category",
+                    "Status",
+                    "Description"
+                ]
+            )
+
+        else:
+
+            tree.setColumnCount(
+                3
+            )
+
+            tree.setHeaderLabels(
+                [
+                    "Component",
+                    "Status",
+                    "Description"
+                ]
+            )
+
+        tree.setSelectionBehavior(
+            QAbstractItemView
+            .SelectionBehavior
+            .SelectRows
+        )
+
+        tree.setSelectionMode(
+            QAbstractItemView
+            .SelectionMode
+            .ExtendedSelection
+        )
+
+        tree.setAlternatingRowColors(
+            True
+        )
+
+        tree.itemChanged.connect(
+            self._component_check_changed
+        )
+
+        header = tree.header()
+
+        header.setSectionResizeMode(
+            0,
+            QHeaderView.ResizeMode.ResizeToContents
+        )
+
+        if include_category:
+
+            header.setSectionResizeMode(
+                1,
+                QHeaderView.ResizeMode.ResizeToContents
+            )
+
+            header.setSectionResizeMode(
+                2,
+                QHeaderView.ResizeMode.ResizeToContents
+            )
+
+            header.setSectionResizeMode(
+                3,
+                QHeaderView.ResizeMode.Stretch
+            )
+
+        else:
+
+            header.setSectionResizeMode(
+                1,
+                QHeaderView.ResizeMode.ResizeToContents
+            )
+
+            header.setSectionResizeMode(
+                2,
+                QHeaderView.ResizeMode.Stretch
+            )
+
+        return tree
+
+
+    def _escape_tab_title(
+        self,
+        title
+    ):
+
+        return str(title).replace(
+            "&",
+            "&&"
+        )
+
+
+    def _toggle_technical_details(self):
+
+        visible = not self.technical_details_widget.isVisible()
+
+        self.technical_details_widget.setVisible(
+            visible
+        )
+
+        self.technical_details_button.setText(
+            "Hide technical details"
+            if visible
+            else "Show technical details"
+        )
+
+
+    def _toggle_log_visibility(self):
+
+        self._set_log_visible(
+            not self.log_visible
+        )
+
+        self.settings.setValue(
+            COMPONENTS_LOG_VISIBLE_KEY,
+            self.log_visible
+        )
+
+
+    def _set_log_visible(
+        self,
+        visible
+    ):
+
+        self.log_visible = bool(
+            visible
+        )
+
+        self.output_field.setVisible(
+            self.log_visible
+        )
+
+        self.log_toggle_button.setText(
+            "Hide Output"
+            if self.log_visible
+            else "Show Output"
+        )
+
+
+    def _restore_ui_state(self):
+
+        geometry = self.settings.value(
+            COMPONENTS_GEOMETRY_KEY
+        )
+
+        if geometry:
+
+            self.restoreGeometry(
+                geometry
+            )
+
+        installed_only = self.settings.value(
+            COMPONENTS_INSTALLED_ONLY_KEY,
+            False,
+            type=bool
+        )
+
+        self.installed_only_checkbox.setChecked(
+            installed_only
+        )
+
+        saved_category = self.settings.value(
+            COMPONENTS_CURRENT_TAB_KEY,
+            self.category_order[0]
+        )
+
+        if saved_category in self.category_order:
+
+            self.category_tabs.setCurrentIndex(
+                self.category_order.index(
+                    saved_category
+                )
+            )
+
+        log_visible = self.settings.value(
+            COMPONENTS_LOG_VISIBLE_KEY,
+            True,
+            type=bool
+        )
+
+        self._set_log_visible(
+            log_visible
+        )
+
+
+    def _save_ui_state(self):
+
+        self.settings.setValue(
+            COMPONENTS_GEOMETRY_KEY,
+            self.saveGeometry()
+        )
+
+        self.settings.setValue(
+            COMPONENTS_INSTALLED_ONLY_KEY,
+            self.installed_only_checkbox.isChecked()
+        )
+
+        self.settings.setValue(
+            COMPONENTS_CURRENT_TAB_KEY,
+            self._current_category()
+        )
+
+        self.settings.setValue(
+            COMPONENTS_LOG_VISIBLE_KEY,
+            self.log_visible
+        )
+
+        self.settings.sync()
 
 
     def _initial_load(self):
@@ -658,7 +997,6 @@ class ComponentsDialog(QDialog):
 
         self.protontricks_label.setText(
             (
-                "Protontricks: "
                 f"{self.manager.installation.display_name} "
                 f"— {catalog.version}"
             )
@@ -672,14 +1010,12 @@ class ComponentsDialog(QDialog):
             )
 
             self.windows_version_label.setText(
-                "Windows compatibility version: "
-                f"{windows_label}"
+                windows_label
             )
 
         else:
 
             self.windows_version_label.setText(
-                "Windows compatibility version: "
                 "Could not be detected"
             )
 
@@ -709,6 +1045,10 @@ class ComponentsDialog(QDialog):
 
         self.output_field.setPlainText(
             message
+        )
+
+        self._set_log_visible(
+            True
         )
 
         self._set_busy(
@@ -749,6 +1089,8 @@ class ComponentsDialog(QDialog):
             for tree in self.component_trees.values():
                 tree.clear()
 
+            self.component_items = {}
+
             category_counts = {
                 category: 0
                 for category in SUPPORTED_CATEGORIES
@@ -756,110 +1098,60 @@ class ComponentsDialog(QDialog):
 
             for component in self.components:
 
-                tree = self.component_trees.get(
+                category_tree = self.component_trees.get(
                     component.category
                 )
 
-                if not tree:
-                    continue
-
-                if component.name in WINDOWS_VERSION_VERBS:
-
-                    installed_text = (
-                        "Active"
-                        if component.installed
-                        else "Not active"
-                    )
-
-                elif component.category == "settings":
-
-                    installed_text = (
-                        "Applied previously"
-                        if component.installed
-                        else "Not applied"
-                    )
-
-                else:
-
-                    installed_text = (
-                        "Installed"
-                        if component.installed
-                        else "Not installed"
-                    )
-
-                item = QTreeWidgetItem(
-                    [
-                        component.name,
-                        installed_text,
-                        component.description
-                    ]
+                all_tree = self.component_trees.get(
+                    "all"
                 )
 
-                item.setData(
-                    0,
-                    Qt.ItemDataRole.UserRole,
-                    component.name
-                )
+                if category_tree:
 
-                item.setData(
-                    1,
-                    Qt.ItemDataRole.UserRole,
-                    component.installed
-                )
-
-                if component.installed:
-
-                    item.setCheckState(
-                        0,
-                        Qt.CheckState.Checked
+                    self._add_component_item(
+                        category_tree,
+                        component,
+                        selected_names,
+                        include_category=False
                     )
 
-                    item.setFlags(
-                        item.flags()
-                        &
-                        ~Qt.ItemFlag.ItemIsUserCheckable
+                    category_counts[
+                        component.category
+                    ] += 1
+
+                if all_tree:
+
+                    self._add_component_item(
+                        all_tree,
+                        component,
+                        selected_names,
+                        include_category=True
                     )
-
-                else:
-
-                    item.setFlags(
-                        item.flags()
-                        |
-                        Qt.ItemFlag.ItemIsUserCheckable
-                    )
-
-                    item.setCheckState(
-                        0,
-                        (
-                            Qt.CheckState.Checked
-                            if component.name in selected_names
-                            else Qt.CheckState.Unchecked
-                        )
-                    )
-
-                tree.addTopLevelItem(
-                    item
-                )
-
-                category_counts[
-                    component.category
-                ] += 1
 
             for index, category in enumerate(
-                SUPPORTED_CATEGORIES
+                self.category_order
             ):
 
-                title = SUPPORTED_CATEGORIES[
-                    category
-                ]
+                if category == "all":
 
-                count = category_counts[
-                    category
-                ]
+                    title = "All"
+                    count = len(self.components)
+
+                else:
+
+                    title = SUPPORTED_CATEGORIES[
+                        category
+                    ]
+
+                    count = category_counts[
+                        category
+                    ]
 
                 self.category_tabs.setTabText(
                     index,
-                    f"{title} ({count})"
+                    self._escape_tab_title(
+                        f"{title} ({count})"
+                    )
                 )
 
         finally:
@@ -870,18 +1162,141 @@ class ComponentsDialog(QDialog):
         self._update_buttons()
 
 
+    def _add_component_item(
+        self,
+        tree,
+        component,
+        selected_names,
+        include_category=False
+    ):
+
+        if component.name in WINDOWS_VERSION_VERBS:
+
+            installed_text = (
+                "Active"
+                if component.installed
+                else "Not active"
+            )
+
+        elif component.category == "settings":
+
+            installed_text = (
+                "Applied previously"
+                if component.installed
+                else "Not applied"
+            )
+
+        else:
+
+            installed_text = (
+                "Installed"
+                if component.installed
+                else "Not installed"
+            )
+
+        if include_category:
+
+            values = [
+                component.name,
+                SUPPORTED_CATEGORIES.get(
+                    component.category,
+                    component.category
+                ),
+                installed_text,
+                component.description
+            ]
+
+        else:
+
+            values = [
+                component.name,
+                installed_text,
+                component.description
+            ]
+
+        item = QTreeWidgetItem(
+            values
+        )
+
+        item.setData(
+            0,
+            COMPONENT_NAME_ROLE,
+            component.name
+        )
+
+        item.setData(
+            0,
+            COMPONENT_INSTALLED_ROLE,
+            component.installed
+        )
+
+        item.setData(
+            0,
+            COMPONENT_CATEGORY_ROLE,
+            component.category
+        )
+
+        item.setData(
+            0,
+            COMPONENT_DESCRIPTION_ROLE,
+            component.description
+        )
+
+        if component.installed:
+
+            item.setCheckState(
+                0,
+                Qt.CheckState.Checked
+            )
+
+            item.setFlags(
+                item.flags()
+                &
+                ~Qt.ItemFlag.ItemIsUserCheckable
+            )
+
+        else:
+
+            item.setFlags(
+                item.flags()
+                |
+                Qt.ItemFlag.ItemIsUserCheckable
+            )
+
+            item.setCheckState(
+                0,
+                (
+                    Qt.CheckState.Checked
+                    if component.name in selected_names
+                    else Qt.CheckState.Unchecked
+                )
+            )
+
+        tree.addTopLevelItem(
+            item
+        )
+
+        self.component_items.setdefault(
+            component.name,
+            []
+        ).append(
+            item
+        )
+
+
     def _current_category(self):
 
         index = self.category_tabs.currentIndex()
 
-        categories = list(
-            SUPPORTED_CATEGORIES
-        )
+        if (
+            index < 0
+            or
+            index >= len(self.category_order)
+        ):
 
-        if index < 0 or index >= len(categories):
-            return categories[0]
+            return self.category_order[0]
 
-        return categories[index]
+        return self.category_order[index]
 
 
     def apply_filter(self, *unused_arguments):
@@ -910,18 +1325,46 @@ class ComponentsDialog(QDialog):
                     index
                 )
 
-                component_name = item.text(0)
-                description = item.text(2)
+                component_name = str(
+                    item.data(
+                        0,
+                        COMPONENT_NAME_ROLE
+                    )
+                    or ""
+                )
+
+                description = str(
+                    item.data(
+                        0,
+                        COMPONENT_DESCRIPTION_ROLE
+                    )
+                    or ""
+                )
+
+                item_category = str(
+                    item.data(
+                        0,
+                        COMPONENT_CATEGORY_ROLE
+                    )
+                    or ""
+                )
+
+                category_title = SUPPORTED_CATEGORIES.get(
+                    item_category,
+                    item_category
+                )
 
                 installed = bool(
                     item.data(
-                        1,
-                        Qt.ItemDataRole.UserRole
+                        0,
+                        COMPONENT_INSTALLED_ROLE
                     )
                 )
 
                 searchable_text = (
-                    f"{component_name} {description}"
+                    f"{component_name} "
+                    f"{description} "
+                    f"{category_title}"
                 ).lower()
 
                 matches_search = (
@@ -965,17 +1408,31 @@ class ComponentsDialog(QDialog):
                 "visible_count"
             ) or 0
 
-            category_total = sum(
-                1
-                for component in self.components
-                if component.category == current_category
-            )
+            if current_category == "all":
+
+                category_total = len(
+                    self.components
+                )
+
+                category_title = "All"
+
+            else:
+
+                category_total = sum(
+                    1
+                    for component in self.components
+                    if component.category == current_category
+                )
+
+                category_title = SUPPORTED_CATEGORIES[
+                    current_category
+                ]
 
             self.status_label.setText(
                 (
                     f"Showing {visible_count} of "
                     f"{category_total} components in "
-                    f"{SUPPORTED_CATEGORIES[current_category]}."
+                    f"{category_title}."
                 )
             )
 
@@ -984,45 +1441,37 @@ class ComponentsDialog(QDialog):
 
     def _checked_component_names(self):
 
-        selected_names = []
+        selected_names = set()
 
-        for tree in self.component_trees.values():
+        for component_name, items in self.component_items.items():
 
-            for index in range(
-                tree.topLevelItemCount()
+            if not items:
+                continue
+
+            item = items[0]
+
+            installed = bool(
+                item.data(
+                    0,
+                    COMPONENT_INSTALLED_ROLE
+                )
+            )
+
+            if installed:
+                continue
+
+            if (
+                item.checkState(0)
+                ==
+                Qt.CheckState.Checked
             ):
 
-                item = tree.topLevelItem(
-                    index
+                selected_names.add(
+                    component_name
                 )
-
-                installed = bool(
-                    item.data(
-                        1,
-                        Qt.ItemDataRole.UserRole
-                    )
-                )
-
-                if installed:
-                    continue
-
-                if (
-                    item.checkState(0)
-                    !=
-                    Qt.CheckState.Checked
-                ):
-                    continue
-
-                component_name = item.data(
-                    0,
-                    Qt.ItemDataRole.UserRole
-                )
-
-                if component_name:
-                    selected_names.append(component_name)
 
         return sorted(
-            set(selected_names)
+            selected_names
         )
 
 
@@ -1039,62 +1488,76 @@ class ComponentsDialog(QDialog):
 
         component_name = item.data(
             0,
-            Qt.ItemDataRole.UserRole
+            COMPONENT_NAME_ROLE
         )
 
-        if (
-            component_name in WINDOWS_VERSION_VERBS
-            and
-            item.checkState(0) == Qt.CheckState.Checked
-        ):
+        if not component_name:
+            return
 
-            self.updating_items = True
+        check_state = item.checkState(
+            0
+        )
 
-            try:
+        self.updating_items = True
 
-                settings_tree = self.component_trees.get(
-                    "settings"
+        try:
+
+            for matching_item in self.component_items.get(
+                component_name,
+                []
+            ):
+
+                installed = bool(
+                    matching_item.data(
+                        0,
+                        COMPONENT_INSTALLED_ROLE
+                    )
                 )
 
-                if settings_tree:
+                if installed:
+                    continue
 
-                    for index in range(
-                        settings_tree.topLevelItemCount()
+                if matching_item.checkState(0) != check_state:
+
+                    matching_item.setCheckState(
+                        0,
+                        check_state
+                    )
+
+            if (
+                component_name in WINDOWS_VERSION_VERBS
+                and
+                check_state == Qt.CheckState.Checked
+            ):
+
+                for other_name in WINDOWS_VERSION_VERBS:
+
+                    if other_name == component_name:
+                        continue
+
+                    for other_item in self.component_items.get(
+                        other_name,
+                        []
                     ):
-
-                        other_item = settings_tree.topLevelItem(
-                            index
-                        )
-
-                        if other_item is item:
-                            continue
-
-                        other_name = other_item.data(
-                            0,
-                            Qt.ItemDataRole.UserRole
-                        )
 
                         other_installed = bool(
                             other_item.data(
-                                1,
-                                Qt.ItemDataRole.UserRole
+                                0,
+                                COMPONENT_INSTALLED_ROLE
                             )
                         )
 
-                        if (
-                            other_name in WINDOWS_VERSION_VERBS
-                            and
-                            not other_installed
-                        ):
+                        if other_installed:
+                            continue
 
-                            other_item.setCheckState(
-                                0,
-                                Qt.CheckState.Unchecked
-                            )
+                        other_item.setCheckState(
+                            0,
+                            Qt.CheckState.Unchecked
+                        )
 
-            finally:
+        finally:
 
-                self.updating_items = False
+            self.updating_items = False
 
         self._update_buttons()
 
@@ -1120,8 +1583,8 @@ class ComponentsDialog(QDialog):
 
                     installed = bool(
                         item.data(
-                            1,
-                            Qt.ItemDataRole.UserRole
+                            0,
+                            COMPONENT_INSTALLED_ROLE
                         )
                     )
 
@@ -1359,6 +1822,10 @@ class ComponentsDialog(QDialog):
             message
         )
 
+        self._set_log_visible(
+            True
+        )
+
         self.status_label.setText(
             "Installation failed."
         )
@@ -1415,5 +1882,7 @@ class ComponentsDialog(QDialog):
 
             event.ignore()
             return
+
+        self._save_ui_state()
 
         super().closeEvent(event)

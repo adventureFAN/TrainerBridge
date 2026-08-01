@@ -60,11 +60,11 @@ from core.version import (
 
 
 STATUS_NAMES = {
-    "NATIVE": "Native Linux game",
+    "NATIVE": "No Proton prefix",
     "READY_WITH_TRAINER": "Ready with trainer",
     "READY": "Ready — no trainer",
-    "PROTON_DETECTED": "Proton detected",
-    "UNKNOWN": "Unknown"
+    "PROTON_DETECTED": "Proton prefix not initialized",
+    "UNKNOWN": "Scan issue"
 }
 
 
@@ -84,6 +84,7 @@ MAIN_SPLITTER_SIZES_KEY = "main/splitter_sizes"
 MAIN_STATUS_FILTER_KEY = "main/status_filter"
 MAIN_SEARCH_TEXT_KEY = "main/search_text"
 MAIN_SELECTED_APPID_KEY = "main/selected_appid"
+MAIN_LOG_VISIBLE_KEY = "main/log_visible"
 
 
 class SessionWorker(QObject):
@@ -242,69 +243,33 @@ class MainWindow(QMainWindow):
             10
         )
 
-        header_widget = QFrame()
-
-        header_widget.setFixedHeight(
-            66
+        main_layout.setSpacing(
+            8
         )
 
-        header_widget.setSizePolicy(
-            QSizePolicy.Policy.Expanding,
-            QSizePolicy.Policy.Fixed
+        self.main_splitter = QSplitter(
+            Qt.Orientation.Horizontal
         )
 
-        header_layout = QVBoxLayout(
-            header_widget
+        self.main_splitter.setChildrenCollapsible(
+            False
         )
 
-        header_layout.setContentsMargins(
+        left_widget = QWidget()
+        left_layout = QVBoxLayout(
+            left_widget
+        )
+
+        left_layout.setContentsMargins(
             0,
             0,
-            0,
+            6,
             0
         )
 
-        header_layout.setSpacing(
-            2
+        left_layout.setSpacing(
+            6
         )
-
-        title = QLabel(
-            "TrainerBridge"
-        )
-
-        title.setStyleSheet(
-            """
-            font-size: 24px;
-            font-weight: bold;
-            """
-        )
-
-        subtitle = QLabel(
-            APP_DESCRIPTION
-        )
-
-        subtitle.setStyleSheet(
-            "color: gray;"
-        )
-
-        title.setWordWrap(False)
-        subtitle.setWordWrap(False)
-
-        header_layout.addWidget(
-            title
-        )
-
-        header_layout.addWidget(
-            subtitle
-        )
-
-        header_layout.addStretch(1)
-
-        main_layout.addWidget(
-            header_widget
-        )
-
-        search_layout = QHBoxLayout()
 
         self.search_field = QLineEdit()
 
@@ -314,6 +279,19 @@ class MainWindow(QMainWindow):
 
         self.search_field.textChanged.connect(
             self.apply_filter
+        )
+
+        left_layout.addWidget(
+            self.search_field
+        )
+
+        filter_layout = QHBoxLayout()
+
+        filter_layout.setContentsMargins(
+            0,
+            0,
+            0,
+            0
         )
 
         status_filter_label = QLabel(
@@ -328,7 +306,7 @@ class MainWindow(QMainWindow):
         )
 
         self.status_filter.addItem(
-            "All Proton games",
+            "Supported Proton games",
             "PROTON"
         )
 
@@ -343,17 +321,12 @@ class MainWindow(QMainWindow):
         )
 
         self.status_filter.addItem(
-            "Proton detected",
-            "PROTON_DETECTED"
-        )
-
-        self.status_filter.addItem(
-            "Native Linux games",
+            "No Proton prefix",
             "NATIVE"
         )
 
         self.status_filter.addItem(
-            "Unknown",
+            "Scan issue",
             "UNKNOWN"
         )
 
@@ -369,35 +342,21 @@ class MainWindow(QMainWindow):
             self.scan_games
         )
 
-        search_layout.addWidget(
-            self.search_field,
-            1
-        )
-
-        search_layout.addWidget(
+        filter_layout.addWidget(
             status_filter_label
         )
 
-        search_layout.addWidget(
-            self.status_filter
+        filter_layout.addWidget(
+            self.status_filter,
+            1
         )
 
-        search_layout.addWidget(
+        filter_layout.addWidget(
             self.rescan_button
         )
 
-        main_layout.addLayout(
-            search_layout
-        )
-
-        self.main_splitter = QSplitter(
-            Qt.Orientation.Horizontal
-        )
-
-        splitter = self.main_splitter
-
-        splitter.setChildrenCollapsible(
-            False
+        left_layout.addLayout(
+            filter_layout
         )
 
         self.game_tree = QTreeWidget()
@@ -457,8 +416,13 @@ class MainWindow(QMainWindow):
             QHeaderView.ResizeMode.ResizeToContents
         )
 
-        splitter.addWidget(
-            self.game_tree
+        left_layout.addWidget(
+            self.game_tree,
+            1
+        )
+
+        self.main_splitter.addWidget(
+            left_widget
         )
 
         details_scroll = QScrollArea()
@@ -471,18 +435,114 @@ class MainWindow(QMainWindow):
             QFrame.Shape.NoFrame
         )
 
-        details_widget = QWidget()
-        details_widget.setMinimumWidth(0)
+        right_widget = QWidget()
+        right_widget.setMinimumWidth(0)
 
-        details_layout = QVBoxLayout(
-            details_widget
+        right_layout = QVBoxLayout(
+            right_widget
         )
 
-        details_layout.setContentsMargins(
+        right_layout.setContentsMargins(
             8,
             0,
             0,
             0
+        )
+
+        right_layout.setSpacing(
+            8
+        )
+
+        actions_group = QGroupBox(
+            "Actions"
+        )
+
+        actions_layout = QVBoxLayout(
+            actions_group
+        )
+
+        self.start_button = QPushButton(
+            "Launch Game + Trainer"
+        )
+
+        self.start_button.setDefault(
+            True
+        )
+
+        self.start_button.setMinimumHeight(
+            38
+        )
+
+        self.start_button.clicked.connect(
+            self.start_selected_game
+        )
+
+        actions_layout.addWidget(
+            self.start_button
+        )
+
+        fallback_button_layout = QHBoxLayout()
+
+        self.launch_game_button = QPushButton(
+            "Launch Game"
+        )
+
+        self.launch_game_button.clicked.connect(
+            self.launch_game_only
+        )
+
+        self.launch_trainer_button = QPushButton(
+            "Launch Trainer"
+        )
+
+        self.launch_trainer_button.clicked.connect(
+            self.launch_trainer_only
+        )
+
+        fallback_button_layout.addWidget(
+            self.launch_game_button
+        )
+
+        fallback_button_layout.addWidget(
+            self.launch_trainer_button
+        )
+
+        actions_layout.addLayout(
+            fallback_button_layout
+        )
+
+        management_button_layout = QHBoxLayout()
+
+        self.import_button = QPushButton(
+            "Import Trainer"
+        )
+
+        self.import_button.clicked.connect(
+            self.import_selected_trainer
+        )
+
+        self.components_button = QPushButton(
+            "Prefix Components"
+        )
+
+        self.components_button.clicked.connect(
+            self.open_components_dialog
+        )
+
+        management_button_layout.addWidget(
+            self.import_button
+        )
+
+        management_button_layout.addWidget(
+            self.components_button
+        )
+
+        actions_layout.addLayout(
+            management_button_layout
+        )
+
+        right_layout.addWidget(
+            actions_group
         )
 
         details_group = QGroupBox(
@@ -559,84 +619,81 @@ class MainWindow(QMainWindow):
             self.trainer_value
         )
 
-        details_layout.addWidget(
+        right_layout.addWidget(
             details_group
         )
 
-        first_button_layout = QHBoxLayout()
-
-        self.import_button = QPushButton(
-            "Import Trainer"
+        right_layout.addStretch(
+            1
         )
 
-        self.import_button.clicked.connect(
-            self.import_selected_trainer
+        details_scroll.setWidget(
+            right_widget
         )
 
-        self.components_button = QPushButton(
-            "Prefix Components"
+        self.main_splitter.addWidget(
+            details_scroll
         )
 
-        self.components_button.clicked.connect(
-            self.open_components_dialog
+        self.main_splitter.setStretchFactor(
+            0,
+            3
         )
 
-        first_button_layout.addWidget(
-            self.import_button
+        self.main_splitter.setStretchFactor(
+            1,
+            2
         )
 
-        first_button_layout.addWidget(
-            self.components_button
+        self.main_splitter.setSizes(
+            [
+                620,
+                380
+            ]
         )
 
-        details_layout.addLayout(
-            first_button_layout
+        main_layout.addWidget(
+            self.main_splitter,
+            1
         )
 
-        fallback_button_layout = QHBoxLayout()
+        log_header_layout = QHBoxLayout()
 
-        self.launch_game_button = QPushButton(
-            "Launch Game"
+        log_header_layout.setContentsMargins(
+            0,
+            0,
+            0,
+            0
         )
 
-        self.launch_game_button.clicked.connect(
-            self.launch_game_only
+        log_title = QLabel(
+            "Live Log"
         )
 
-        self.launch_trainer_button = QPushButton(
-            "Launch Trainer"
+        log_title.setStyleSheet(
+            "font-weight: bold;"
         )
 
-        self.launch_trainer_button.clicked.connect(
-            self.launch_trainer_only
+        self.log_toggle_button = QPushButton()
+
+        self.log_toggle_button.clicked.connect(
+            self._toggle_log_visibility
         )
 
-        fallback_button_layout.addWidget(
-            self.launch_game_button
+        log_header_layout.addWidget(
+            log_title
         )
 
-        fallback_button_layout.addWidget(
-            self.launch_trainer_button
+        log_header_layout.addStretch(
+            1
         )
 
-        details_layout.addLayout(
-            fallback_button_layout
+        log_header_layout.addWidget(
+            self.log_toggle_button
         )
 
-        self.start_button = QPushButton(
-            "Launch Game + Trainer"
-        )
-
-        self.start_button.setDefault(
-            True
-        )
-
-        self.start_button.clicked.connect(
-            self.start_selected_game
-        )
-
-        details_layout.addWidget(
-            self.start_button
+        main_layout.addLayout(
+            log_header_layout
         )
 
         self.log_output = QTextEdit()
@@ -649,40 +706,16 @@ class MainWindow(QMainWindow):
             "TrainerBridge status..."
         )
 
-        details_layout.addWidget(
-            self.log_output,
-            1
-        )
-
-        details_scroll.setWidget(
-            details_widget
-        )
-
-        splitter.addWidget(
-            details_scroll
-        )
-
-        splitter.setStretchFactor(
-            0,
-            3
-        )
-
-        splitter.setStretchFactor(
-            1,
-            2
-        )
-
-        splitter.setSizes(
-            [
-                600,
-                400
-            ]
+        self.log_output.setMinimumHeight(
+            150
         )
 
         main_layout.addWidget(
-            splitter,
-            1
+            self.log_output
         )
+
+        self.log_visible = True
+        self._set_log_visible(True)
 
         self.statusBar().showMessage(
             "Ready"
@@ -819,6 +852,16 @@ class MainWindow(QMainWindow):
                 selected_appid
             )
 
+        log_visible = self.settings.value(
+            MAIN_LOG_VISIBLE_KEY,
+            True,
+            type=bool
+        )
+
+        self._set_log_visible(
+            log_visible
+        )
+
 
     def _save_ui_state(self):
 
@@ -862,6 +905,11 @@ class MainWindow(QMainWindow):
                 MAIN_SELECTED_APPID_KEY
             )
 
+        self.settings.setValue(
+            MAIN_LOG_VISIBLE_KEY,
+            self.log_visible
+        )
+
         self.settings.sync()
 
 
@@ -874,6 +922,38 @@ class MainWindow(QMainWindow):
 
         super().closeEvent(
             event
+        )
+
+
+    def _toggle_log_visibility(self):
+
+        self._set_log_visible(
+            not self.log_visible
+        )
+
+        self.settings.setValue(
+            MAIN_LOG_VISIBLE_KEY,
+            self.log_visible
+        )
+
+
+    def _set_log_visible(
+        self,
+        visible
+    ):
+
+        self.log_visible = bool(
+            visible
+        )
+
+        self.log_output.setVisible(
+            self.log_visible
+        )
+
+        self.log_toggle_button.setText(
+            "Hide Live Log"
+            if self.log_visible
+            else "Show Live Log"
         )
 
 
@@ -1107,9 +1187,9 @@ class MainWindow(QMainWindow):
             if game.status == "NATIVE":
 
                 native_tooltip = (
-                    "TrainerBridge only supports Windows games "
-                    "running through Proton. This native Linux "
-                    "version is shown for transparency."
+                    "TrainerBridge could not find a Proton prefix. "
+                    "The game may be native Linux, still downloading, "
+                    "or not yet initialized through Proton."
                 )
 
                 item.setToolTip(
@@ -1272,8 +1352,7 @@ class MainWindow(QMainWindow):
 
         preferred_statuses = [
             "READY_WITH_TRAINER",
-            "READY",
-            "PROTON_DETECTED"
+            "READY"
         ]
 
         for status in preferred_statuses:
@@ -1579,9 +1658,9 @@ class MainWindow(QMainWindow):
                 self,
                 "Game not verified",
                 (
-                    "Launch Game must successfully detect the "
-                    "actual game executable before Launch Trainer "
-                    "becomes available."
+                    "Launch Game must first confirm that the "
+                    "game's Proton session is ready before "
+                    "Launch Trainer becomes available."
                 )
             )
 
@@ -1727,7 +1806,7 @@ class MainWindow(QMainWindow):
             self.active_session = None
 
             self._append_log(
-                "Game launch verified. Launch Trainer is now available."
+                "Proton session verified. Launch Trainer is now available."
             )
 
             self.statusBar().showMessage(

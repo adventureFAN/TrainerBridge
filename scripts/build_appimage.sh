@@ -12,7 +12,7 @@ PROJECT_ROOT="$(
 )"
 
 APP_NAME="TrainerBridge"
-VERSION="0.9.0-beta.1"
+VERSION="0.9.0-beta.2"
 ARCHITECTURE="x86_64"
 
 BUILD_VENV="$PROJECT_ROOT/.build-venv"
