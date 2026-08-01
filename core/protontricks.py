@@ -101,6 +101,16 @@ IGNORED_OUTPUT_NAMES = {
 }
 
 
+BWRAP_FAILURE_MARKERS = (
+    "bwrap launcher crashed",
+    "not an open file descriptor",
+    "setting up uid map",
+    "pressure-vessel-wrap",
+    "steam-runtime-launcher-service",
+    "failed to execute child process"
+)
+
+
 class ProtontricksError(
     RuntimeError
 ):
@@ -188,6 +198,14 @@ class ProtontricksManager:
         self.installation = installation
         self.process_monitor = ProcessMonitor()
 
+        # Protontricks normally uses Steam Runtime containerization via
+        # bubblewrap. Some games/runtime combinations fail before Winetricks
+        # starts. In that case TrainerBridge retries the current command once
+        # with Protontricks' official --no-bwrap fallback and remembers the
+        # working mode for the lifetime of this manager instance.
+        self.force_no_bwrap = False
+        self.used_no_bwrap_fallback = False
+
 
     @classmethod
     def detect(cls):
@@ -245,12 +263,21 @@ class ProtontricksManager:
 
     def build_command(
         self,
-        *arguments
+        *arguments,
+        no_bwrap=None
     ):
+
+        if no_bwrap is None:
+            no_bwrap = self.force_no_bwrap
 
         command = list(
             self.installation.command_prefix
         )
+
+        if no_bwrap:
+            command.append(
+                "--no-bwrap"
+            )
 
         command.extend(
             str(argument)
@@ -294,50 +321,32 @@ class ProtontricksManager:
         ).strip()
 
 
-    def _run_capture(
+    def _is_bwrap_failure(
         self,
-        *arguments,
-        force_english=True
+        output
+    ):
+
+        output_lower = output.lower()
+
+        if "bwrap" not in output_lower and "pressure-vessel" not in output_lower:
+            return False
+
+        return any(
+            marker in output_lower
+            for marker in BWRAP_FAILURE_MARKERS
+        )
+
+
+    def _execute_capture(
+        self,
+        arguments,
+        force_english,
+        no_bwrap
     ):
 
         command = self.build_command(
-            *arguments
-        )
-
-        result = subprocess.run(
-            command,
-            capture_output=True,
-            text=True,
-            env=self._build_environment(
-                force_english=force_english
-            ),
-            check=False
-        )
-
-        output = self._combine_output(
-            result.stdout,
-            result.stderr
-        )
-
-        if result.returncode != 0:
-
-            raise ProtontricksCommandError(
-                command=command,
-                return_code=result.returncode,
-                output=output
-            )
-
-        return output
-
-
-    def _run_capture_allow_failure(
-        self,
-        *arguments,
-        force_english=True
-    ):
-
-        command = self.build_command(
-            *arguments
+            *arguments,
+            no_bwrap=no_bwrap
         )
 
         result = subprocess.run(
@@ -356,7 +365,106 @@ class ProtontricksManager:
         )
 
         return (
+            command,
             result.returncode,
+            output
+        )
+
+
+    def _run_capture_result(
+        self,
+        *arguments,
+        force_english=True
+    ):
+
+        command, return_code, output = (
+            self._execute_capture(
+                arguments=arguments,
+                force_english=force_english,
+                no_bwrap=self.force_no_bwrap
+            )
+        )
+
+        if (
+            return_code != 0
+            and
+            not self.force_no_bwrap
+            and
+            self._is_bwrap_failure(output)
+        ):
+
+            first_command = command
+            first_return_code = return_code
+            first_output = output
+
+            self.force_no_bwrap = True
+            self.used_no_bwrap_fallback = True
+
+            command, return_code, output = (
+                self._execute_capture(
+                    arguments=arguments,
+                    force_english=force_english,
+                    no_bwrap=True
+                )
+            )
+
+            if return_code != 0:
+
+                output = (
+                    "Initial Protontricks run failed in bwrap mode.\n"
+                    f"Command: {' '.join(first_command)}\n"
+                    f"Exit code: {first_return_code}\n\n"
+                    f"{first_output}\n\n"
+                    "Retry with --no-bwrap also failed.\n\n"
+                    f"{output}"
+                ).strip()
+
+        return (
+            command,
+            return_code,
+            output
+        )
+
+
+    def _run_capture(
+        self,
+        *arguments,
+        force_english=True
+    ):
+
+        command, return_code, output = (
+            self._run_capture_result(
+                *arguments,
+                force_english=force_english
+            )
+        )
+
+        if return_code != 0:
+
+            raise ProtontricksCommandError(
+                command=command,
+                return_code=return_code,
+                output=output
+            )
+
+        return output
+
+
+    def _run_capture_allow_failure(
+        self,
+        *arguments,
+        force_english=True
+    ):
+
+        _command, return_code, output = (
+            self._run_capture_result(
+                *arguments,
+                force_english=force_english
+            )
+        )
+
+        return (
+            return_code,
             output
         )
 
@@ -1143,34 +1251,23 @@ class ProtontricksManager:
 
             if install_names:
 
-                command = self.build_install_command(
-                    appid,
-                    install_names
-                )
+                try:
 
-                result = subprocess.run(
-                    command,
-                    capture_output=True,
-                    text=True,
-                    env=self._build_environment(),
-                    check=False
-                )
-
-                output = self._combine_output(
-                    result.stdout,
-                    result.stderr
-                )
-
-                if output:
-                    output_sections.append(output)
-
-                if result.returncode != 0:
-
-                    installation_error = ProtontricksCommandError(
-                        command=command,
-                        return_code=result.returncode,
-                        output=output
+                    output = self._run_capture(
+                        str(appid),
+                        *install_names,
+                        force_english=False
                     )
+
+                    if output:
+                        output_sections.append(output)
+
+                except ProtontricksCommandError as error:
+
+                    if error.output:
+                        output_sections.append(error.output)
+
+                    installation_error = error
 
         finally:
 
