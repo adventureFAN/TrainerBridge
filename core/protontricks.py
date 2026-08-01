@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from core.paths import CACHE_DIR
 from core.host_process import host_environment
 from core.process_monitor import ProcessMonitor
+from core.steam import get_steam_info
 
 
 FLATPAK_APP_ID = (
@@ -294,6 +295,18 @@ class ProtontricksManager:
     ):
 
         environment = host_environment()
+
+        steam_info = get_steam_info()
+
+        steam_install_path = steam_info[
+            "install_path"
+        ]
+
+        if steam_install_path:
+
+            environment[
+                "STEAM_DIR"
+            ] = str(steam_install_path)
 
         if force_english:
 

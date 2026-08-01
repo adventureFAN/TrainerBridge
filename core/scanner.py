@@ -1,6 +1,6 @@
-from core.steam import get_steam_libraries
 from core.games import find_games
 from core.proton import apply_proton_info
+from core.steam import get_steam_info
 from core.trainer_manager import apply_trainer_info
 
 
@@ -28,9 +28,43 @@ def determine_status(game):
 
 def scan_all_games():
 
-    libraries = get_steam_libraries()
+    steam_info = get_steam_info()
 
-    games = find_games(libraries)
+    steam_install_path = steam_info[
+        "install_path"
+    ]
+
+    if not steam_install_path:
+
+        print(
+            "No supported Steam data directory was found."
+        )
+
+        return []
+
+    print(
+        "Detected Steam installation: "
+        f"{steam_info['display_name']}"
+    )
+
+    print(
+        "Steam data directory: "
+        f"{steam_install_path}"
+    )
+
+    libraries = steam_info[
+        "libraries"
+    ]
+
+    for library in libraries:
+
+        print(
+            f"Steam library: {library}"
+        )
+
+    games = find_games(
+        libraries
+    )
 
     for game in games:
 
@@ -42,6 +76,5 @@ def scan_all_games():
 
         # Status bestimmen
         game.status = determine_status(game)
-
 
     return games

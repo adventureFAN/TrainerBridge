@@ -2,6 +2,7 @@ import shutil
 import subprocess
 
 from core.host_process import host_environment
+from core.steam import get_steam_info
 
 
 class SteamGameLauncher:
@@ -15,6 +16,19 @@ class SteamGameLauncher:
             f"steam://rungameid/{appid}"
         )
 
+        steam_info = get_steam_info()
+
+        launch_prefix = steam_info[
+            "launch_prefix"
+        ]
+
+        if launch_prefix:
+
+            return [
+                *launch_prefix,
+                steam_uri
+            ]
+
         steam_command = shutil.which(
             "steam"
         )
@@ -25,33 +39,6 @@ class SteamGameLauncher:
                 steam_command,
                 steam_uri
             ]
-
-        flatpak_command = shutil.which(
-            "flatpak"
-        )
-
-        if flatpak_command:
-
-            flatpak_check = subprocess.run(
-                [
-                    flatpak_command,
-                    "info",
-                    "com.valvesoftware.Steam"
-                ],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                check=False,
-                env=host_environment()
-            )
-
-            if flatpak_check.returncode == 0:
-
-                return [
-                    flatpak_command,
-                    "run",
-                    "com.valvesoftware.Steam",
-                    steam_uri
-                ]
 
         xdg_open_command = shutil.which(
             "xdg-open"
@@ -66,8 +53,8 @@ class SteamGameLauncher:
 
         raise RuntimeError(
             "Steam could not be started. "
-            "TrainerBridge could not find Steam, "
-            "Flatpak Steam, or xdg-open."
+            "TrainerBridge could not find a supported "
+            "Steam installation or xdg-open."
         )
 
 

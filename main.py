@@ -53,6 +53,7 @@ from core.resources import resource_path
 from core.scanner import scan_all_games
 from core.session_manager import TrainerSessionManager
 from core.storage import import_trainer as store_trainer
+from core.steam import get_steam_info
 from core.version import (
     APP_DESCRIPTION,
     APP_DISPLAY_VERSION,
@@ -1124,6 +1125,28 @@ class MainWindow(QMainWindow):
 
             self.rescan_button.setEnabled(
                 True
+            )
+
+        steam_info = get_steam_info()
+
+        if steam_info[
+            "install_path"
+        ]:
+
+            self._append_log(
+                "Steam installation: "
+                f"{steam_info['display_name']}"
+            )
+
+            self._append_log(
+                "Steam data directory: "
+                f"{steam_info['install_path']}"
+            )
+
+        else:
+
+            self._append_log(
+                "No supported Steam data directory was found."
             )
 
         self._populate_game_tree()

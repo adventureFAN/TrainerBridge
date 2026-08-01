@@ -8,7 +8,8 @@ class TrainerLauncher:
 
     def __init__(
         self,
-        steam_install_path: Path
+        steam_install_path: Path,
+        steam_kind=None
     ):
 
         if steam_install_path is None:
@@ -20,6 +21,8 @@ class TrainerLauncher:
         self.steam_install_path = Path(
             steam_install_path
         )
+
+        self.steam_kind = steam_kind
 
 
     def validate_game(
@@ -105,6 +108,10 @@ class TrainerLauncher:
             "STEAM_COMPAT_CLIENT_INSTALL_PATH"
         ] = str(self.steam_install_path)
 
+        environment[
+            "STEAM_DIR"
+        ] = str(self.steam_install_path)
+
         return environment
 
 
@@ -122,6 +129,14 @@ class TrainerLauncher:
         )
 
         print()
+
+        if self.steam_kind:
+
+            print(
+                "Steam installation type: "
+                f"{self.steam_kind}"
+            )
+
         print("Trainer command:")
         print(
             f'STEAM_COMPAT_DATA_PATH="{game.prefix}"'

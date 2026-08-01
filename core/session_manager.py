@@ -115,7 +115,10 @@ class TrainerSessionManager:
             )
 
         trainer_launcher = TrainerLauncher(
-            steam_install_path
+            steam_install_path,
+            steam_kind=steam_info[
+                "kind"
+            ]
         )
 
         print()
