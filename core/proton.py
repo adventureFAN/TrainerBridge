@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 
@@ -24,24 +25,80 @@ def read_config_info(prefix):
     }
 
 
+def _is_supported_proton_root(candidate):
+
+    proton_executable = candidate / "proton"
+
+    if not proton_executable.is_file():
+        return False
+
+    if not os.access(proton_executable, os.X_OK):
+        return False
+
+    parent = candidate.parent
+
+    if parent.name == "compatibilitytools.d":
+        return True
+
+    return (
+        parent.name == "common"
+        and parent.parent.name == "steamapps"
+    )
+
+
+def _find_proton_root_from_path(path):
+
+    current = path
+
+    if current.is_file():
+        current = current.parent
+
+    for candidate in (
+        current,
+        *current.parents
+    ):
+
+        if _is_supported_proton_root(candidate):
+            return candidate
+
+    return None
+
+
 def detect_proton_path(config):
 
     if not config:
         return None
 
+    candidates = {}
+
     for line in config["config"]:
 
-        if "/compatibilitytools.d/" in line:
-            return Path(
-                line.split("/files/")[0]
-            )
+        path = Path(line).expanduser()
 
-        if "/steamapps/common/" in line:
-            return Path(
-                line.split("/files/")[0]
-            )
+        if not path.is_absolute():
+            continue
 
-    return None
+        proton_root = _find_proton_root_from_path(
+            path
+        )
+
+        if proton_root is None:
+            continue
+
+        try:
+            identity = proton_root.resolve()
+        except OSError:
+            identity = proton_root.absolute()
+
+        candidates.setdefault(
+            identity,
+            proton_root
+        )
+
+    if len(candidates) != 1:
+        return None
+
+    return next(iter(candidates.values()))
 
 
 def apply_proton_info(game):
