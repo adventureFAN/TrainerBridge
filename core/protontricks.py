@@ -1,5 +1,6 @@
 import hashlib
 import json
+import locale
 import os
 import re
 import shutil
@@ -302,6 +303,60 @@ class ProtontricksManager:
         return environment
 
 
+    def _decode_process_output(
+        self,
+        output
+    ):
+
+        if not output:
+            return ""
+
+        if isinstance(output, str):
+            return output
+
+        encodings = [
+            "utf-8",
+            locale.getpreferredencoding(False),
+            "cp1252",
+            "cp850"
+        ]
+
+        tried_encodings = set()
+
+        for encoding in encodings:
+
+            if not encoding:
+                continue
+
+            normalized_encoding = encoding.lower()
+
+            if normalized_encoding in tried_encodings:
+                continue
+
+            tried_encodings.add(
+                normalized_encoding
+            )
+
+            try:
+
+                return output.decode(
+                    encoding,
+                    errors="strict"
+                )
+
+            except (
+                LookupError,
+                UnicodeDecodeError
+            ):
+
+                continue
+
+        return output.decode(
+            "utf-8",
+            errors="replace"
+        )
+
+
     def _combine_output(
         self,
         stdout,
@@ -310,11 +365,23 @@ class ProtontricksManager:
 
         output_parts = []
 
-        if stdout:
-            output_parts.append(stdout)
+        decoded_stdout = self._decode_process_output(
+            stdout
+        )
 
-        if stderr:
-            output_parts.append(stderr)
+        decoded_stderr = self._decode_process_output(
+            stderr
+        )
+
+        if decoded_stdout:
+            output_parts.append(
+                decoded_stdout
+            )
+
+        if decoded_stderr:
+            output_parts.append(
+                decoded_stderr
+            )
 
         return "\n".join(
             output_parts
@@ -352,7 +419,7 @@ class ProtontricksManager:
         result = subprocess.run(
             command,
             capture_output=True,
-            text=True,
+            text=False,
             env=self._build_environment(
                 force_english=force_english
             ),
