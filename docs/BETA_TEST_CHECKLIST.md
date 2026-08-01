@@ -1,56 +1,48 @@
-# TrainerBridge 0.9.0 Beta 1 — Test checklist
+# TrainerBridge Beta Test Checklist
 
-## Test environment
+## Package startup
 
-- Distribution and version:
-- Desktop environment:
-- Wayland or X11:
-- Steam installation: system / Flatpak
-- Proton version:
-- Protontricks installation: system / Flatpak / missing
-- Steam library filesystem: Btrfs / ext4 / NTFS / other
-- Game AppID:
-- Game uses a publisher launcher: yes / no
-- Trainer runtime: Win32 / .NET Framework / .NET Core / unknown
+- [ ] AppImage starts normally
+- [ ] AppImage starts with `APPIMAGE_EXTRACT_AND_RUN=1`
+- [ ] Portable `.tar.xz` version starts
+- [ ] Icon and About dialog are displayed correctly
+- [ ] Main, About and Prefix Components window positions are restored
 
-## Core tests
+## Main window
 
-- [ ] TrainerBridge starts from the AppImage
-- [ ] Steam libraries are detected
-- [ ] Native Linux games are shown but marked unsupported
-- [ ] Status filter is restored after restarting TrainerBridge
 - [ ] Window size and splitter position are restored
-- [ ] Trainer import works
-- [ ] Launch Game detects the actual game executable
-- [ ] Launch Trainer becomes available only after game verification
+- [ ] Search text and status filter are restored
+- [ ] Live Log visibility is restored
+- [ ] Last selected game is restored
+
+## Game and trainer launch
+
 - [ ] Launch Game + Trainer works
-- [ ] Trainer detects the running game
-- [ ] Trainer closes cleanly
-- [ ] Game closes cleanly after the trainer
-- [ ] Prefix Components detects native or Flatpak Protontricks
-- [ ] Previously installed components are shown
-- [ ] Multiple component installation works
-- [ ] Windows compatibility version is preserved
-- [ ] Help → About TrainerBridge opens
-- [ ] Open Log Folder opens the correct directory
+- [ ] Launch Game enables Launch Trainer after verification
+- [ ] Launch Trainer works for an already verified game
+- [ ] Trainer exits normally with code 0
+- [ ] Early non-zero trainer exit shows the runtime-components hint
+- [ ] Direct game launch works
+- [ ] Publisher-launcher game works
 
-## Launcher tests
+## Prefix Components
 
-Record every intermediate executable shown by the game:
+- [ ] Native or Flatpak Protontricks is detected
+- [ ] Component catalog loads
+- [ ] Installed components are shown correctly
+- [ ] Multiple components can be installed
+- [ ] `--no-bwrap` fallback works when required
+- [ ] Game and AppID appear only under Show technical details
+- [ ] Prefix Components window position is restored
+- [ ] Output visibility is restored
 
-- [ ] Direct game executable
-- [ ] Publisher login/update launcher
-- [ ] Launcher closes before game executable starts
-- [ ] Launcher remains open while the game runs
-- [ ] Game executable changes after an update
+## Distribution matrix
 
-## Bug report
+Record for every test system:
 
-Please include:
-
-1. The completed environment section above
-2. Exact steps to reproduce
-3. Expected behavior
-4. Actual behavior
-5. The newest log from `~/.local/share/TrainerBridge/logs/`
-6. Screenshots when the problem is visual
+- Distribution and version
+- Desktop environment
+- Steam package type: native, Flatpak or Snap
+- Proton version
+- Protontricks package type and version
+- Game library filesystem and mount path

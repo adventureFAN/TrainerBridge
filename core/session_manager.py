@@ -127,12 +127,15 @@ class TrainerSessionManager:
             game
         )
 
+        trainer_started_at = time.monotonic()
+
         return {
             "action": "trainer",
             "game": game,
             "runtime": runtime,
             "game_process": None,
             "trainer_process": trainer_process,
+            "trainer_started_at": trainer_started_at,
             "game_was_running": True
         }
 
@@ -171,5 +174,6 @@ class TrainerSessionManager:
             "runtime": trainer_session["runtime"],
             "game_process": game_session["game_process"],
             "trainer_process": trainer_session["trainer_process"],
+            "trainer_started_at": trainer_session["trainer_started_at"],
             "game_was_running": game_session["game_was_running"]
         }

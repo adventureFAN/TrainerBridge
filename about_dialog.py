@@ -1,4 +1,5 @@
 from PySide6.QtCore import (
+    QSettings,
     Qt,
     QUrl
 )
@@ -28,6 +29,9 @@ from core.version import (
 )
 
 
+ABOUT_GEOMETRY_KEY = "about/geometry"
+
+
 class AboutDialog(QDialog):
 
     def __init__(
@@ -36,6 +40,11 @@ class AboutDialog(QDialog):
     ):
 
         super().__init__(parent)
+
+        self.settings = QSettings(
+            APP_NAME,
+            APP_NAME
+        )
 
         self.setWindowTitle(
             f"About {APP_NAME}"
@@ -46,6 +55,42 @@ class AboutDialog(QDialog):
         )
 
         self._build_interface()
+        self._restore_ui_state()
+
+
+    def _restore_ui_state(self):
+
+        geometry = self.settings.value(
+            ABOUT_GEOMETRY_KEY
+        )
+
+        if geometry:
+
+            self.restoreGeometry(
+                geometry
+            )
+
+
+    def _save_ui_state(self):
+
+        self.settings.setValue(
+            ABOUT_GEOMETRY_KEY,
+            self.saveGeometry()
+        )
+
+        self.settings.sync()
+
+
+    def done(
+        self,
+        result
+    ):
+
+        self._save_ui_state()
+
+        super().done(
+            result
+        )
 
 
     def _build_interface(self):

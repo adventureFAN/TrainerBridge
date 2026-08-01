@@ -1,0 +1,12 @@
+.git
+venv
+.build-venv
+build
+dist
+release
+TrainerBridge.AppDir
+tools
+__pycache__
+*.pyc
+*.pyo
+*.AppImage

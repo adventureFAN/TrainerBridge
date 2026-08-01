@@ -1,59 +1,62 @@
-# TrainerBridge 0.9.0 Beta 1 — AppImage build
+# TrainerBridge Beta Build Guide
 
-## One-command build
+TrainerBridge release builds are created inside an Ubuntu 22.04 container. This keeps the bundled Linux binaries compatible with Ubuntu 22.04 and newer distributions instead of inheriting Bazzite/Fedora's newer glibc requirement.
 
-From the TrainerBridge project folder:
+## Requirements
+
+One container engine is required:
+
+- Podman (recommended on Bazzite/Fedora)
+- Docker
+
+No local Python build environment is used for the release build.
+
+## Build
+
+From the project directory:
 
 ```bash
 ./scripts/build_appimage.sh
 ```
 
-The first build creates an isolated `.build-venv`, installs the build tools,
-downloads `appimagetool`, and creates:
+The first build downloads the Ubuntu image, installs the pinned build dependencies and may take several minutes. Later builds reuse the container cache.
+
+## Output
+
+The `release/` directory will contain:
 
 ```text
-release/TrainerBridge-0.9.0-beta.1-x86_64.AppImage
+TrainerBridge-0.9.0-beta.2-x86_64.AppImage
+TrainerBridge-0.9.0-beta.2-x86_64.AppImage.sha256
+TrainerBridge-0.9.0-beta.2-x86_64.tar.xz
+TrainerBridge-0.9.0-beta.2-x86_64.tar.xz.sha256
 ```
 
-Run it with:
+The AppImage is the normal release. The `.tar.xz` archive is a FUSE-free fallback.
+
+## Test the AppImage without FUSE
 
 ```bash
-./release/TrainerBridge-0.9.0-beta.1-x86_64.AppImage
+APPIMAGE_EXTRACT_AND_RUN=1 \
+./release/TrainerBridge-0.9.0-beta.2-x86_64.AppImage
 ```
 
-The build can take several minutes the first time. Later builds reuse the
-build environment and downloaded AppImage tool.
+## Use the portable archive
 
-## AppImage runtime dependencies
-
-TrainerBridge bundles Python, PySide6, Qt and the Python `vdf` module.
-It intentionally does not bundle Steam, Proton or Protontricks. Those must be
-available on the host system.
-
-## Saved UI state
-
-The main window now remembers:
-
-- window size and position
-- maximized/full-screen state
-- splitter position
-- status filter
-- search text
-- selected Steam AppID
-
-Qt stores these desktop preferences in the normal per-user settings location.
-Trainer files, caches and logs remain under:
-
-```text
-~/.local/share/TrainerBridge/
+```bash
+tar -xf release/TrainerBridge-0.9.0-beta.2-x86_64.tar.xz
+./TrainerBridge/TrainerBridge
 ```
 
-## Logs
+## Automatic build checks
 
-Each launch creates a log file under:
+The build fails if:
 
-```text
-~/.local/share/TrainerBridge/logs/
-```
+- the frozen application self-test fails;
+- the AppDir self-test fails;
+- the AppImage self-test fails;
+- developer-specific `/home/alex` paths are embedded;
+- the old project name `ProtonTrainerManager` is embedded;
+- the desktop entry is invalid.
 
-Use **Help → About TrainerBridge → Open Log Folder**.
+The build also reports the highest `GLIBC_*` symbol found in bundled ELF files and creates checksums with relative filenames.

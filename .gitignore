@@ -29,3 +29,5 @@ launcher-diagnosis-*.txt
 .idea/
 .DS_Store
 *~
+.portable-stage/
+tools/

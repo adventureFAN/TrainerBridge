@@ -1,5 +1,6 @@
 import logging
 import sys
+import time
 from pathlib import Path
 
 from PySide6.QtCore import (
@@ -85,6 +86,8 @@ MAIN_STATUS_FILTER_KEY = "main/status_filter"
 MAIN_SEARCH_TEXT_KEY = "main/search_text"
 MAIN_SELECTED_APPID_KEY = "main/selected_appid"
 MAIN_LOG_VISIBLE_KEY = "main/log_visible"
+
+EARLY_TRAINER_EXIT_SECONDS = 15
 
 
 class SessionWorker(QObject):
@@ -1623,9 +1626,10 @@ class MainWindow(QMainWindow):
         )
 
 
-    def open_components_dialog(self):
-
-        game = self.selected_game
+    def _open_components_for_game(
+        self,
+        game
+    ):
 
         if not game:
             return
@@ -1636,6 +1640,13 @@ class MainWindow(QMainWindow):
         )
 
         dialog.exec()
+
+
+    def open_components_dialog(self):
+
+        self._open_components_for_game(
+            self.selected_game
+        )
 
 
     def launch_game_only(self):
@@ -1877,6 +1888,58 @@ class MainWindow(QMainWindow):
         self._update_action_buttons()
 
 
+    def _show_early_trainer_exit_warning(
+        self,
+        game,
+        return_code,
+        runtime_seconds
+    ):
+
+        message_box = QMessageBox(
+            self
+        )
+
+        message_box.setIcon(
+            QMessageBox.Icon.Warning
+        )
+
+        message_box.setWindowTitle(
+            "Trainer exited unexpectedly"
+        )
+
+        message_box.setText(
+            f"The trainer for {game.name} exited shortly "
+            f"after launch with code {return_code}."
+        )
+
+        message_box.setInformativeText(
+            "The trainer may require additional runtime "
+            "components such as .NET or Microsoft Visual C++. "
+            "Check the trainer author's documentation and use "
+            "Prefix Components to install only the components "
+            "it requires.\n\n"
+            "Close the game before modifying its Proton prefix.\n\n"
+            f"Trainer runtime: {runtime_seconds:.1f} seconds."
+        )
+
+        components_button = message_box.addButton(
+            "Open Prefix Components",
+            QMessageBox.ButtonRole.ActionRole
+        )
+
+        message_box.addButton(
+            QMessageBox.StandardButton.Close
+        )
+
+        message_box.exec()
+
+        if message_box.clickedButton() is components_button:
+
+            self._open_components_for_game(
+                game
+            )
+
+
     def _check_active_session(self):
 
         if self.verified_game_runtime:
@@ -1926,9 +1989,26 @@ class MainWindow(QMainWindow):
 
                 if return_code is not None:
 
-                    game = self.active_session.get(
+                    session = self.active_session
+
+                    game = session.get(
                         "game"
                     )
+
+                    trainer_started_at = session.get(
+                        "trainer_started_at"
+                    )
+
+                    runtime_seconds = None
+
+                    if trainer_started_at is not None:
+
+                        runtime_seconds = max(
+                            0.0,
+                            time.monotonic()
+                            -
+                            float(trainer_started_at)
+                        )
 
                     if game:
 
@@ -1953,10 +2033,134 @@ class MainWindow(QMainWindow):
                             "Trainer exited"
                         )
 
+                    exited_early = (
+                        return_code != 0
+                        and
+                        runtime_seconds is not None
+                        and
+                        runtime_seconds
+                        <=
+                        EARLY_TRAINER_EXIT_SECONDS
+                    )
+
+                    if exited_early and game:
+
+                        self._append_log(
+                            "The trainer exited shortly after launch. "
+                            "It may require additional Prefix Components."
+                        )
+
+                        self._show_early_trainer_exit_warning(
+                            game,
+                            return_code,
+                            runtime_seconds
+                        )
+
         self._update_action_buttons()
 
 
+
+def run_self_test():
+
+    checks = []
+
+    try:
+
+        test_application = (
+            QApplication.instance()
+            or
+            QApplication(
+                [APP_NAME, "--self-test"]
+            )
+        )
+
+        test_widget = QWidget()
+        test_widget.setWindowTitle(
+            APP_NAME
+        )
+
+        test_application.processEvents()
+
+        checks.append(
+            ("Qt platform initialization", True, "OK")
+        )
+
+        test_widget.deleteLater()
+
+    except Exception as error:
+
+        checks.append(
+            ("Qt platform initialization", False, str(error))
+        )
+
+    try:
+
+        import vdf  # noqa: F401
+
+        checks.append(
+            ("vdf import", True, "OK")
+        )
+
+    except Exception as error:
+
+        checks.append(
+            ("vdf import", False, str(error))
+        )
+
+    for relative_path in (
+        "assets/trainerbridge.png",
+        "assets/THIRD_PARTY_NOTICES.txt"
+    ):
+
+        path = resource_path(
+            relative_path
+        )
+
+        checks.append(
+            (
+                relative_path,
+                path.is_file(),
+                str(path)
+            )
+        )
+
+    checks.append(
+        (
+            "application metadata",
+            bool(APP_NAME and APP_DISPLAY_VERSION),
+            f"{APP_NAME} {APP_DISPLAY_VERSION}"
+        )
+    )
+
+    print(
+        f"{APP_NAME} self-test"
+    )
+
+    failed = False
+
+    for name, success, detail in checks:
+
+        status = (
+            "PASS"
+            if success
+            else "FAIL"
+        )
+
+        print(
+            f"[{status}] {name}: {detail}"
+        )
+
+        if not success:
+            failed = True
+
+    return 1 if failed else 0
+
+
 def main():
+
+    if "--self-test" in sys.argv:
+
+        return run_self_test()
 
     log_file = setup_logging()
 
@@ -1997,11 +2201,11 @@ def main():
     window = MainWindow()
     window.show()
 
-    sys.exit(
-        application.exec()
-    )
+    return application.exec()
 
 
 if __name__ == "__main__":
 
-    main()
+    sys.exit(
+        main()
+    )

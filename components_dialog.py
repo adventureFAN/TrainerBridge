@@ -214,45 +214,6 @@ class ComponentsDialog(QDialog):
             8
         )
 
-        summary_layout = QFormLayout()
-
-        summary_layout.setContentsMargins(
-            0,
-            0,
-            0,
-            0
-        )
-
-        game_value = QLabel(
-            self.game.name
-        )
-
-        appid_value = QLabel(
-            str(self.game.appid)
-        )
-
-        game_value.setTextInteractionFlags(
-            Qt.TextInteractionFlag.TextSelectableByMouse
-        )
-
-        appid_value.setTextInteractionFlags(
-            Qt.TextInteractionFlag.TextSelectableByMouse
-        )
-
-        summary_layout.addRow(
-            "Game:",
-            game_value
-        )
-
-        summary_layout.addRow(
-            "AppID:",
-            appid_value
-        )
-
-        main_layout.addLayout(
-            summary_layout
-        )
-
         technical_header_layout = QHBoxLayout()
 
         technical_header_layout.setContentsMargins(
@@ -295,6 +256,22 @@ class ComponentsDialog(QDialog):
             0
         )
 
+        self.game_value = QLabel(
+            self.game.name
+        )
+
+        self.appid_value = QLabel(
+            str(self.game.appid)
+        )
+
+        self.game_value.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+        )
+
+        self.appid_value.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+        )
+
         self.prefix_value = QLabel(
             str(self.game.prefix or "-")
         )
@@ -325,6 +302,16 @@ class ComponentsDialog(QDialog):
 
         self.windows_version_label = QLabel(
             "Loading..."
+        )
+
+        technical_layout.addRow(
+            "Game:",
+            self.game_value
+        )
+
+        technical_layout.addRow(
+            "AppID:",
+            self.appid_value
         )
 
         technical_layout.addRow(
