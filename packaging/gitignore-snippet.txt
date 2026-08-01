@@ -1,8 +1,0 @@
-# TrainerBridge local build output
-.build-venv/
-build/
-dist/
-release/
-tools/
-TrainerBridge.AppDir/
-*.spec.bak
