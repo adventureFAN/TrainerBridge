@@ -133,7 +133,7 @@ class TrainerLauncher:
 
             command = build_flatpak_trainer_command(
                 game,
-                runtime,
+                runtime.flatpak_instance,
                 self.steam_install_path
             )
 

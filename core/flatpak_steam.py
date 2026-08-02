@@ -396,10 +396,15 @@ def find_flatpak_game_session(appid):
     return None
 
 
-def build_flatpak_trainer_command(game, session, steam_root):
+def build_flatpak_trainer_command(game, flatpak_instance, steam_root):
     flatpak = _flatpak_command()
     if not flatpak:
         raise RuntimeError("The flatpak command was not found.")
+
+    if not flatpak_instance:
+        raise RuntimeError(
+            "The running Steam Flatpak game sandbox was not found."
+        )
 
     proton = Path(game.proton_path) / "proton"
     compatdata = Path(game.prefix)
@@ -407,7 +412,7 @@ def build_flatpak_trainer_command(game, session, steam_root):
     return [
         flatpak,
         "enter",
-        session.instance,
+        str(flatpak_instance),
         "/usr/bin/python3",
         "-c",
         _TRAINER_LAUNCHER,
