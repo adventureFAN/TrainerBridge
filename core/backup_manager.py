@@ -481,6 +481,38 @@ class BackupManager:
 
         return destination
 
+    def _extract_archive_member(self, archive, member, target_root):
+        """Extract one member while preserving Wine's absolute symlinks.
+
+        Proton prefixes normally contain entries such as pfx/dosdevices/s:
+        that point to absolute host paths. Python 3.14's default TAR safety
+        filter rejects those links with AbsoluteLinkError. The archive is
+        created by TrainerBridge itself, so we validate every member path
+        before explicitly opting into trusted extraction.
+        """
+        self._safe_member_destination(target_root, member.name)
+
+        if member.islnk():
+            raise BackupError(
+                "The backup archive contains an unsupported hard link and "
+                "was not restored."
+            )
+
+        try:
+            archive.extract(
+                member,
+                path=target_root,
+                set_attrs=True,
+                filter="fully_trusted"
+            )
+        except TypeError:
+            # Python versions before extraction filters were introduced.
+            archive.extract(
+                member,
+                path=target_root,
+                set_attrs=True
+            )
+
     def _extract_archive(self, archive_path, target_root, progress):
         zstandard = self._require_zstandard()
         archive_path = Path(archive_path)
@@ -491,8 +523,11 @@ class BackupManager:
             with zstandard.ZstdDecompressor().stream_reader(raw_file) as reader:
                 with tarfile.open(fileobj=reader, mode="r|") as archive:
                     for member in archive:
-                        self._safe_member_destination(target_root, member.name)
-                        archive.extract(member, path=target_root, set_attrs=True)
+                        self._extract_archive_member(
+                            archive,
+                            member,
+                            target_root
+                        )
                         if member.isfile():
                             progress(member.size)
 

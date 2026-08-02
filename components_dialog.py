@@ -496,10 +496,6 @@ class ComponentsDialog(QDialog):
             self.refresh_button
         )
 
-        main_layout.addLayout(
-            filter_layout
-        )
-
         self.progress_bar = QProgressBar()
 
         self.progress_bar.setRange(
@@ -579,6 +575,11 @@ class ComponentsDialog(QDialog):
 
         main_layout.addWidget(
             backup_group
+        )
+
+        # Keep catalog controls immediately next to the catalog they affect.
+        main_layout.addLayout(
+            filter_layout
         )
 
         self.category_tabs = QTabWidget()
@@ -1788,6 +1789,17 @@ class ComponentsDialog(QDialog):
 
     def _update_buttons(self):
 
+        required_widgets = (
+            "selection_label",
+            "install_button",
+            "clear_selection_button",
+            "restore_backup_button",
+            "delete_backup_button"
+        )
+
+        if not all(hasattr(self, name) for name in required_widgets):
+            return
+
         selected_names = self._checked_component_names()
         selected_count = len(selected_names)
 
@@ -1991,7 +2003,7 @@ class ComponentsDialog(QDialog):
             QMessageBox.ButtonRole.AcceptRole
         )
         ignore_button = message_box.addButton(
-            "Ignore & Continue",
+            "Ignore && Continue",
             QMessageBox.ButtonRole.DestructiveRole
         )
         cancel_button = message_box.addButton(
@@ -2302,7 +2314,7 @@ class ComponentsDialog(QDialog):
                 )
 
                 ignore_button = message_box.addButton(
-                    "Ignore & Continue",
+                    "Ignore && Continue",
                     QMessageBox.ButtonRole.DestructiveRole
                 )
                 message_box.addButton(
