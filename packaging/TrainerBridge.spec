@@ -19,7 +19,7 @@ analysis = Analysis(
             "assets"
         )
     ],
-    hiddenimports=[],
+    hiddenimports=["zstandard"],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

@@ -10,6 +10,7 @@ class GameProfile:
     library: Path
 
     prefix: Path | None = None
+    game_path: Path | None = None
 
     proton_name: str | None = None
     proton_version: str | None = None

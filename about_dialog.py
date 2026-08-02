@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
 )
 
 from core.paths import LOG_DIR
+from core.preferences import remember_window_geometry
 from core.resources import resource_path
 from core.version import (
     APP_DESCRIPTION,
@@ -47,7 +48,7 @@ class AboutDialog(QDialog):
         )
 
         self.setWindowTitle(
-            f"About {APP_NAME}"
+            f"About - {APP_NAME}"
         )
 
         self.setFixedWidth(
@@ -59,6 +60,9 @@ class AboutDialog(QDialog):
 
 
     def _restore_ui_state(self):
+
+        if not remember_window_geometry(self.settings):
+            return
 
         geometry = self.settings.value(
             ABOUT_GEOMETRY_KEY
@@ -73,10 +77,18 @@ class AboutDialog(QDialog):
 
     def _save_ui_state(self):
 
-        self.settings.setValue(
-            ABOUT_GEOMETRY_KEY,
-            self.saveGeometry()
-        )
+        if remember_window_geometry(self.settings):
+
+            self.settings.setValue(
+                ABOUT_GEOMETRY_KEY,
+                self.saveGeometry()
+            )
+
+        else:
+
+            self.settings.remove(
+                ABOUT_GEOMETRY_KEY
+            )
 
         self.settings.sync()
 

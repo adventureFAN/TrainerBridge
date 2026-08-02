@@ -34,6 +34,7 @@ required_files=(
     "$PROJECT_ROOT/main.py"
     "$PROJECT_ROOT/components_dialog.py"
     "$PROJECT_ROOT/about_dialog.py"
+    "$PROJECT_ROOT/options_dialog.py"
     "$PROJECT_ROOT/assets/trainerbridge.png"
     "$PROJECT_ROOT/packaging/TrainerBridge.spec"
     "$PROJECT_ROOT/packaging/trainerbridge.desktop"

@@ -9,13 +9,16 @@ from PySide6.QtCore import (
     QThread,
     QTimer,
     Qt,
+    QUrl,
     Signal,
     Slot
 )
 
 from PySide6.QtGui import (
     QAction,
-    QIcon
+    QDesktopServices,
+    QIcon,
+    QKeySequence
 )
 
 from PySide6.QtWidgets import (
@@ -32,6 +35,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMainWindow,
+    QMenu,
     QMessageBox,
     QPushButton,
     QScrollArea,
@@ -46,13 +50,25 @@ from PySide6.QtWidgets import (
 
 from about_dialog import AboutDialog
 from components_dialog import ComponentsDialog
+from options_dialog import OptionsDialog
 
+from core.exporter import build_launch_script
 from core.logging_setup import setup_logging
+from core.paths import DATA_DIR, TRAINER_DIR
+from core.preferences import (
+    HIDE_EARLY_TRAINER_EXIT_KEY,
+    HIDE_TRAINER_REQUIREMENTS_KEY,
+    apply_theme,
+    remember_window_geometry
+)
 from core.process_monitor import ProcessMonitor
 from core.resources import resource_path
 from core.scanner import scan_all_games
 from core.session_manager import TrainerSessionManager
-from core.storage import import_trainer as store_trainer
+from core.storage import (
+    import_trainer as store_trainer,
+    remove_trainer as remove_stored_trainer
+)
 from core.steam import get_steam_info
 from core.version import (
     APP_DESCRIPTION,
@@ -75,9 +91,8 @@ STATUS_ROLE = int(
 ) + 1
 
 
-TRAINER_REQUIREMENTS_NOTICE_KEY = (
-    "notices/hide_trainer_requirements"
-)
+TRAINER_REQUIREMENTS_NOTICE_KEY = HIDE_TRAINER_REQUIREMENTS_KEY
+EARLY_TRAINER_EXIT_NOTICE_KEY = HIDE_EARLY_TRAINER_EXIT_KEY
 
 
 MAIN_GEOMETRY_KEY = "main/geometry"
@@ -186,7 +201,7 @@ class MainWindow(QMainWindow):
         self.verified_game_appid = None
 
         self.setWindowTitle(
-            f"{APP_NAME} {APP_DISPLAY_VERSION}"
+            APP_NAME
         )
 
         self.setWindowIcon(
@@ -285,10 +300,6 @@ class MainWindow(QMainWindow):
             self.apply_filter
         )
 
-        left_layout.addWidget(
-            self.search_field
-        )
-
         filter_layout = QHBoxLayout()
 
         filter_layout.setContentsMargins(
@@ -347,6 +358,11 @@ class MainWindow(QMainWindow):
         )
 
         filter_layout.addWidget(
+            self.search_field,
+            2
+        )
+
+        filter_layout.addWidget(
             status_filter_label
         )
 
@@ -392,6 +408,14 @@ class MainWindow(QMainWindow):
 
         self.game_tree.setAlternatingRowColors(
             True
+        )
+
+        self.game_tree.setContextMenuPolicy(
+            Qt.ContextMenuPolicy.CustomContextMenu
+        )
+
+        self.game_tree.customContextMenuRequested.connect(
+            self._show_game_context_menu
         )
 
         self.game_tree.itemSelectionChanged.connect(
@@ -661,43 +685,16 @@ class MainWindow(QMainWindow):
             1
         )
 
-        log_header_layout = QHBoxLayout()
-
-        log_header_layout.setContentsMargins(
-            0,
-            0,
-            0,
-            0
-        )
-
-        log_title = QLabel(
+        self.log_title = QLabel(
             "Live Log"
         )
 
-        log_title.setStyleSheet(
+        self.log_title.setStyleSheet(
             "font-weight: bold;"
         )
 
-        self.log_toggle_button = QPushButton()
-
-        self.log_toggle_button.clicked.connect(
-            self._toggle_log_visibility
-        )
-
-        log_header_layout.addWidget(
-            log_title
-        )
-
-        log_header_layout.addStretch(
-            1
-        )
-
-        log_header_layout.addWidget(
-            self.log_toggle_button
-        )
-
-        main_layout.addLayout(
-            log_header_layout
+        main_layout.addWidget(
+            self.log_title
         )
 
         self.log_output = QTextEdit()
@@ -730,37 +727,264 @@ class MainWindow(QMainWindow):
 
     def _build_menu(self):
 
-        help_menu = self.menuBar().addMenu(
-            "Help"
+        file_menu = self.menuBar().addMenu(
+            "&File"
         )
 
-        requirements_action = QAction(
-            "Trainer requirements notice",
+        self.import_action = QAction(
+            "Import Trainer...",
             self
         )
-
-        requirements_action.triggered.connect(
-            self._show_trainer_requirements_notice
+        self.import_action.setShortcut(
+            QKeySequence("Ctrl+I")
+        )
+        self.import_action.triggered.connect(
+            self.import_selected_trainer
+        )
+        file_menu.addAction(
+            self.import_action
         )
 
-        help_menu.addAction(
-            requirements_action
+        self.remove_trainer_action = QAction(
+            "Remove Trainer",
+            self
+        )
+        self.remove_trainer_action.setShortcut(
+            QKeySequence("Ctrl+Delete")
+        )
+        self.remove_trainer_action.triggered.connect(
+            self.remove_selected_trainer
+        )
+        file_menu.addAction(
+            self.remove_trainer_action
         )
 
-        help_menu.addSeparator()
+        file_menu.addSeparator()
+
+        self.open_data_folder_action = QAction(
+            "Open Data Folder",
+            self
+        )
+        self.open_data_folder_action.triggered.connect(
+            self.open_data_folder
+        )
+        file_menu.addAction(
+            self.open_data_folder_action
+        )
+
+        file_menu.addSeparator()
+
+        exit_action = QAction(
+            "Exit",
+            self
+        )
+        exit_action.setShortcut(
+            QKeySequence("Ctrl+Q")
+        )
+        exit_action.triggered.connect(
+            self.close
+        )
+        file_menu.addAction(
+            exit_action
+        )
+
+        game_menu = self.menuBar().addMenu(
+            "&Game"
+        )
+
+        self.launch_combined_action = QAction(
+            "Launch Game + Trainer",
+            self
+        )
+        self.launch_combined_action.triggered.connect(
+            self.start_selected_game
+        )
+        game_menu.addAction(
+            self.launch_combined_action
+        )
+
+        self.launch_game_action = QAction(
+            "Launch Game",
+            self
+        )
+        self.launch_game_action.triggered.connect(
+            self.launch_game_only
+        )
+        game_menu.addAction(
+            self.launch_game_action
+        )
+
+        self.launch_trainer_action = QAction(
+            "Launch Trainer",
+            self
+        )
+        self.launch_trainer_action.triggered.connect(
+            self.launch_trainer_only
+        )
+        game_menu.addAction(
+            self.launch_trainer_action
+        )
+
+        game_menu.addSeparator()
+
+        self.prefix_components_action = QAction(
+            "Prefix Components...",
+            self
+        )
+        self.prefix_components_action.setShortcut(
+            QKeySequence("Alt+Return")
+        )
+        self.prefix_components_action.triggered.connect(
+            self.open_components_dialog
+        )
+        game_menu.addAction(
+            self.prefix_components_action
+        )
+
+        self.open_game_folder_action = QAction(
+            "Open Game Folder",
+            self
+        )
+        self.open_game_folder_action.triggered.connect(
+            self.open_selected_game_folder
+        )
+        game_menu.addAction(
+            self.open_game_folder_action
+        )
+
+        self.open_prefix_folder_action = QAction(
+            "Open Prefix Folder",
+            self
+        )
+        self.open_prefix_folder_action.triggered.connect(
+            self.open_selected_prefix_folder
+        )
+        game_menu.addAction(
+            self.open_prefix_folder_action
+        )
+
+        self.open_trainer_folder_action = QAction(
+            "Open Trainer Folder",
+            self
+        )
+        self.open_trainer_folder_action.triggered.connect(
+            self.open_selected_trainer_folder
+        )
+        game_menu.addAction(
+            self.open_trainer_folder_action
+        )
+
+        game_menu.addSeparator()
+
+        self.export_script_action = QAction(
+            "Export Launch Script...",
+            self
+        )
+        self.export_script_action.triggered.connect(
+            self.export_launch_script
+        )
+        game_menu.addAction(
+            self.export_script_action
+        )
+
+        view_menu = self.menuBar().addMenu(
+            "&View"
+        )
+
+        self.show_log_action = QAction(
+            "Show Live Log",
+            self
+        )
+        self.show_log_action.setCheckable(True)
+        self.show_log_action.setShortcut(
+            QKeySequence("Ctrl+L")
+        )
+        self.show_log_action.toggled.connect(
+            self._show_log_toggled
+        )
+        view_menu.addAction(
+            self.show_log_action
+        )
+
+        tools_menu = self.menuBar().addMenu(
+            "&Tools"
+        )
+
+        self.rescan_action = QAction(
+            "Rescan Steam Library",
+            self
+        )
+        self.rescan_action.setShortcut(
+            QKeySequence("Ctrl+R")
+        )
+        self.rescan_action.triggered.connect(
+            self.scan_games
+        )
+        tools_menu.addAction(
+            self.rescan_action
+        )
+
+        self.open_trainers_folder_action = QAction(
+            "Open Trainers Folder",
+            self
+        )
+        self.open_trainers_folder_action.triggered.connect(
+            self.open_trainers_folder
+        )
+        tools_menu.addAction(
+            self.open_trainers_folder_action
+        )
+
+        tools_menu.addSeparator()
+
+        self.options_action = QAction(
+            "Options...",
+            self
+        )
+        self.options_action.setShortcut(
+            QKeySequence("Ctrl+,")
+        )
+        self.options_action.triggered.connect(
+            self._show_options_dialog
+        )
+        tools_menu.addAction(
+            self.options_action
+        )
+
+        help_menu = self.menuBar().addMenu(
+            "&Help"
+        )
 
         about_action = QAction(
-            f"About {APP_NAME}",
+            "About...",
             self
         )
-
         about_action.triggered.connect(
             self._show_about_dialog
         )
-
         help_menu.addAction(
             about_action
         )
+
+        self.context_menu_action = QAction(
+            "Open Game Context Menu",
+            self.game_tree
+        )
+        self.context_menu_action.setShortcut(
+            QKeySequence("Shift+F10")
+        )
+        self.context_menu_action.setShortcutContext(
+            Qt.ShortcutContext.WidgetWithChildrenShortcut
+        )
+        self.context_menu_action.triggered.connect(
+            self._show_game_context_menu_for_keyboard
+        )
+        self.game_tree.addAction(
+            self.context_menu_action
+        )
+
+        self._update_action_buttons()
+        self._set_log_visible(self.log_visible)
 
 
     def _show_about_dialog(
@@ -777,50 +1001,359 @@ class MainWindow(QMainWindow):
         dialog.exec()
 
 
+    def _show_options_dialog(
+        self,
+        checked=False
+    ):
+
+        del checked
+
+        dialog = OptionsDialog(
+            self
+        )
+        dialog.exec()
+
+        self._set_log_visible(
+            self.settings.value(
+                MAIN_LOG_VISIBLE_KEY,
+                self.log_visible,
+                type=bool
+            )
+        )
+
+
+    def _show_game_context_menu(
+        self,
+        position
+    ):
+
+        item = self.game_tree.itemAt(
+            position
+        )
+
+        if item is not None:
+            self.game_tree.setCurrentItem(item)
+
+        if self.selected_game is None:
+            return
+
+        menu = QMenu(self)
+        menu.addAction(self.launch_combined_action)
+        menu.addAction(self.launch_game_action)
+        menu.addAction(self.launch_trainer_action)
+        menu.addSeparator()
+        menu.addAction(self.import_action)
+        menu.addAction(self.remove_trainer_action)
+        menu.addAction(self.open_trainer_folder_action)
+        menu.addSeparator()
+        menu.addAction(self.prefix_components_action)
+        menu.addAction(self.open_prefix_folder_action)
+        menu.addAction(self.open_game_folder_action)
+        menu.addSeparator()
+        menu.addAction(self.export_script_action)
+
+        menu.exec(
+            self.game_tree.viewport().mapToGlobal(
+                position
+            )
+        )
+
+
+    def _show_game_context_menu_for_keyboard(self):
+
+        current_item = self.game_tree.currentItem()
+
+        if current_item is None:
+            return
+
+        rectangle = self.game_tree.visualItemRect(
+            current_item
+        )
+
+        position = rectangle.center()
+        self._show_game_context_menu(position)
+
+
+    def _open_folder(
+        self,
+        folder,
+        description
+    ):
+
+        if not folder:
+
+            QMessageBox.information(
+                self,
+                f"{description} unavailable",
+                f"No {description.lower()} is available for the selected game."
+            )
+
+            return
+
+        folder = Path(folder)
+
+        if not folder.is_dir():
+
+            QMessageBox.warning(
+                self,
+                f"{description} not found",
+                f"The folder does not exist:\n{folder}"
+            )
+
+            return
+
+        opened = QDesktopServices.openUrl(
+            QUrl.fromLocalFile(
+                str(folder)
+            )
+        )
+
+        if not opened:
+
+            QMessageBox.warning(
+                self,
+                "Folder could not be opened",
+                f"TrainerBridge could not open:\n{folder}"
+            )
+
+
+    def open_data_folder(self):
+
+        DATA_DIR.mkdir(
+            parents=True,
+            exist_ok=True
+        )
+        self._open_folder(
+            DATA_DIR,
+            "Data folder"
+        )
+
+
+    def open_trainers_folder(self):
+
+        TRAINER_DIR.mkdir(
+            parents=True,
+            exist_ok=True
+        )
+        self._open_folder(
+            TRAINER_DIR,
+            "Trainers folder"
+        )
+
+
+    def open_selected_game_folder(self):
+
+        game = self.selected_game
+        self._open_folder(
+            game.game_path if game else None,
+            "Game folder"
+        )
+
+
+    def open_selected_prefix_folder(self):
+
+        game = self.selected_game
+        self._open_folder(
+            game.prefix if game else None,
+            "Prefix folder"
+        )
+
+
+    def open_selected_trainer_folder(self):
+
+        game = self.selected_game
+
+        trainer_folder = (
+            Path(game.trainer_path).parent
+            if game and game.trainer_path
+            else None
+        )
+
+        self._open_folder(
+            trainer_folder,
+            "Trainer folder"
+        )
+
+
+    def remove_selected_trainer(self):
+
+        game = self.selected_game
+
+        if not game or not game.trainer_path:
+            return
+
+        if self._trainer_is_running():
+
+            QMessageBox.warning(
+                self,
+                "Trainer is still running",
+                "Close the trainer before removing it from TrainerBridge."
+            )
+
+            return
+
+        answer = QMessageBox.warning(
+            self,
+            "Remove trainer",
+            (
+                f"Remove the configured trainer for {game.name}?\n\n"
+                f"Managed file:\n{game.trainer_path}\n\n"
+                "The original downloaded file is not affected."
+            ),
+            (
+                QMessageBox.StandardButton.Yes
+                |
+                QMessageBox.StandardButton.Cancel
+            ),
+            QMessageBox.StandardButton.Cancel
+        )
+
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+
+        try:
+
+            remove_stored_trainer(
+                game.appid
+            )
+
+        except Exception as error:
+
+            QMessageBox.critical(
+                self,
+                "Trainer removal failed",
+                str(error)
+            )
+
+            return
+
+        self._append_log(
+            f"Trainer removed for {game.name}."
+        )
+
+        self.scan_games(
+            select_appid=game.appid
+        )
+
+
+    def export_launch_script(self):
+
+        game = self.selected_game
+
+        if not game:
+            return
+
+        safe_name = "".join(
+            character
+            if character.isalnum() or character in "-_"
+            else "-"
+            for character in game.name
+        ).strip("-") or game.appid
+
+        default_path = (
+            Path.home()
+            / f"TrainerBridge-{safe_name}.sh"
+        )
+
+        target_file, _ = QFileDialog.getSaveFileName(
+            self,
+            f"Export launch script for {game.name}",
+            str(default_path),
+            "Shell scripts (*.sh);;All files (*)"
+        )
+
+        if not target_file:
+            return
+
+        target_path = Path(target_file)
+
+        if target_path.suffix.lower() != ".sh":
+            target_path = target_path.with_suffix(".sh")
+
+        try:
+
+            script = build_launch_script(
+                game
+            )
+
+            target_path.write_text(
+                script,
+                encoding="utf-8"
+            )
+            target_path.chmod(0o755)
+
+        except Exception as error:
+
+            QMessageBox.critical(
+                self,
+                "Launch script export failed",
+                str(error)
+            )
+
+            return
+
+        self._append_log(
+            f"Launch script exported: {target_path}"
+        )
+
+        QMessageBox.information(
+            self,
+            "Launch script exported",
+            (
+                f"The executable launch script was saved to:\n"
+                f"{target_path}\n\n"
+                "It uses absolute paths. Re-export it after moving Steam, "
+                "the game library, Proton, or the trainer."
+            )
+        )
+
+
     def _restore_ui_state(self):
 
-        geometry = self.settings.value(
-            MAIN_GEOMETRY_KEY
-        )
+        if remember_window_geometry(self.settings):
 
-        if geometry:
-
-            self.restoreGeometry(
-                geometry
+            geometry = self.settings.value(
+                MAIN_GEOMETRY_KEY
             )
 
-        window_state = self.settings.value(
-            MAIN_WINDOW_STATE_KEY
-        )
+            if geometry:
 
-        if window_state:
-
-            self.restoreState(
-                window_state
-            )
-
-        splitter_sizes = self.settings.value(
-            MAIN_SPLITTER_SIZES_KEY
-        )
-
-        if isinstance(splitter_sizes, (list, tuple)):
-
-            try:
-
-                sizes = [
-                    int(value)
-                    for value in splitter_sizes
-                ]
-
-            except (TypeError, ValueError):
-
-                sizes = []
-
-            if len(sizes) == 2:
-
-                self.main_splitter.setSizes(
-                    sizes
+                self.restoreGeometry(
+                    geometry
                 )
+
+            window_state = self.settings.value(
+                MAIN_WINDOW_STATE_KEY
+            )
+
+            if window_state:
+
+                self.restoreState(
+                    window_state
+                )
+
+            splitter_sizes = self.settings.value(
+                MAIN_SPLITTER_SIZES_KEY
+            )
+
+            if isinstance(splitter_sizes, (list, tuple)):
+
+                try:
+
+                    sizes = [
+                        int(value)
+                        for value in splitter_sizes
+                    ]
+
+                except (TypeError, ValueError):
+
+                    sizes = []
+
+                if len(sizes) == 2:
+
+                    self.main_splitter.setSizes(
+                        sizes
+                    )
 
         saved_status = self.settings.value(
             MAIN_STATUS_FILTER_KEY,
@@ -869,20 +1402,28 @@ class MainWindow(QMainWindow):
 
     def _save_ui_state(self):
 
-        self.settings.setValue(
-            MAIN_GEOMETRY_KEY,
-            self.saveGeometry()
-        )
+        if remember_window_geometry(self.settings):
 
-        self.settings.setValue(
-            MAIN_WINDOW_STATE_KEY,
-            self.saveState()
-        )
+            self.settings.setValue(
+                MAIN_GEOMETRY_KEY,
+                self.saveGeometry()
+            )
 
-        self.settings.setValue(
-            MAIN_SPLITTER_SIZES_KEY,
-            self.main_splitter.sizes()
-        )
+            self.settings.setValue(
+                MAIN_WINDOW_STATE_KEY,
+                self.saveState()
+            )
+
+            self.settings.setValue(
+                MAIN_SPLITTER_SIZES_KEY,
+                self.main_splitter.sizes()
+            )
+
+        else:
+
+            self.settings.remove(MAIN_GEOMETRY_KEY)
+            self.settings.remove(MAIN_WINDOW_STATE_KEY)
+            self.settings.remove(MAIN_SPLITTER_SIZES_KEY)
 
         self.settings.setValue(
             MAIN_STATUS_FILTER_KEY,
@@ -950,14 +1491,36 @@ class MainWindow(QMainWindow):
             visible
         )
 
+        self.log_title.setVisible(
+            self.log_visible
+        )
+
         self.log_output.setVisible(
             self.log_visible
         )
 
-        self.log_toggle_button.setText(
-            "Hide Live Log"
-            if self.log_visible
-            else "Show Live Log"
+        if hasattr(self, "show_log_action"):
+
+            self.show_log_action.blockSignals(True)
+            self.show_log_action.setChecked(
+                self.log_visible
+            )
+            self.show_log_action.blockSignals(False)
+
+
+
+    def _show_log_toggled(
+        self,
+        visible
+    ):
+
+        self._set_log_visible(
+            visible
+        )
+
+        self.settings.setValue(
+            MAIN_LOG_VISIBLE_KEY,
+            self.log_visible
         )
 
 
@@ -1092,6 +1655,9 @@ class MainWindow(QMainWindow):
             False
         )
 
+        if hasattr(self, "rescan_action"):
+            self.rescan_action.setEnabled(False)
+
         QApplication.setOverrideCursor(
             Qt.CursorShape.WaitCursor
         )
@@ -1126,6 +1692,9 @@ class MainWindow(QMainWindow):
             self.rescan_button.setEnabled(
                 True
             )
+
+            if hasattr(self, "rescan_action"):
+                self.rescan_action.setEnabled(True)
 
         steam_info = get_steam_info()
 
@@ -1523,13 +2092,36 @@ class MainWindow(QMainWindow):
 
         game = self.selected_game
 
+        selection_actions = [
+            "import_action",
+            "remove_trainer_action",
+            "launch_combined_action",
+            "launch_game_action",
+            "launch_trainer_action",
+            "prefix_components_action",
+            "open_game_folder_action",
+            "open_prefix_folder_action",
+            "open_trainer_folder_action",
+            "export_script_action"
+        ]
+
         if not game:
 
+            self.import_button.setText("Import Trainer")
             self.import_button.setEnabled(False)
             self.components_button.setEnabled(False)
             self.launch_game_button.setEnabled(False)
             self.launch_trainer_button.setEnabled(False)
             self.start_button.setEnabled(False)
+
+            for action_name in selection_actions:
+                action = getattr(self, action_name, None)
+                if action is not None:
+                    action.setEnabled(False)
+
+            import_action = getattr(self, "import_action", None)
+            if import_action is not None:
+                import_action.setText("Import Trainer...")
 
             return
 
@@ -1546,16 +2138,35 @@ class MainWindow(QMainWindow):
             trainer_is_running
         )
 
-        self.import_button.setEnabled(
+        trainer_exists = (
+            game.trainer_path is not None
+            and
+            Path(game.trainer_path).is_file()
+        )
+
+        import_text = (
+            "Replace Trainer"
+            if trainer_exists
+            else "Import Trainer"
+        )
+        self.import_button.setText(import_text)
+
+        import_action = getattr(self, "import_action", None)
+        if import_action is not None:
+            import_action.setText(f"{import_text}...")
+
+        can_import = (
             is_proton_game
             and
             not session_is_busy
         )
 
-        self.components_button.setEnabled(
+        can_open_components = (
             is_proton_game
             and
             game.prefix is not None
+            and
+            Path(game.prefix).is_dir()
             and
             not session_is_busy
             and
@@ -1563,14 +2174,18 @@ class MainWindow(QMainWindow):
         )
 
         game_is_ready_for_trainer = (
-            game.trainer_path is not None
+            trainer_exists
             and
             game.prefix is not None
             and
+            Path(game.prefix).is_dir()
+            and
             game.proton_path is not None
+            and
+            (Path(game.proton_path) / "proton").is_file()
         )
 
-        self.launch_game_button.setEnabled(
+        can_launch_game = (
             is_proton_game
             and
             not session_is_busy
@@ -1578,7 +2193,7 @@ class MainWindow(QMainWindow):
             not verified_game_is_running
         )
 
-        self.launch_trainer_button.setEnabled(
+        can_launch_trainer = (
             game_is_ready_for_trainer
             and
             verified_game_is_running
@@ -1586,11 +2201,39 @@ class MainWindow(QMainWindow):
             not session_is_busy
         )
 
-        self.start_button.setEnabled(
+        can_launch_combined = (
             game_is_ready_for_trainer
             and
             not session_is_busy
         )
+
+        self.import_button.setEnabled(can_import)
+        self.components_button.setEnabled(can_open_components)
+        self.launch_game_button.setEnabled(can_launch_game)
+        self.launch_trainer_button.setEnabled(can_launch_trainer)
+        self.start_button.setEnabled(can_launch_combined)
+
+        action_states = {
+            "import_action": can_import,
+            "remove_trainer_action": trainer_exists and not session_is_busy,
+            "launch_combined_action": can_launch_combined,
+            "launch_game_action": can_launch_game,
+            "launch_trainer_action": can_launch_trainer,
+            "prefix_components_action": can_open_components,
+            "open_game_folder_action": bool(
+                game.game_path and Path(game.game_path).is_dir()
+            ),
+            "open_prefix_folder_action": bool(
+                game.prefix and Path(game.prefix).is_dir()
+            ),
+            "open_trainer_folder_action": trainer_exists,
+            "export_script_action": game_is_ready_for_trainer
+        }
+
+        for action_name, enabled in action_states.items():
+            action = getattr(self, action_name, None)
+            if action is not None:
+                action.setEnabled(enabled)
 
 
     def import_selected_trainer(self):
@@ -1600,9 +2243,15 @@ class MainWindow(QMainWindow):
         if not game:
             return
 
+        replacing_trainer = game.trainer_path is not None
+
         trainer_file, _ = QFileDialog.getOpenFileName(
             self,
-            f"Select a trainer for {game.name}",
+            (
+                f"Select a replacement trainer for {game.name}"
+                if replacing_trainer
+                else f"Select a trainer for {game.name}"
+            ),
             str(Path.home()),
             "Windows executables (*.exe);;All files (*)"
         )
@@ -1637,10 +2286,15 @@ class MainWindow(QMainWindow):
 
         QMessageBox.information(
             self,
-            "Trainer imported",
             (
-                "The trainer was successfully copied "
-                "into TrainerBridge."
+                "Trainer replaced"
+                if replacing_trainer
+                else "Trainer imported"
+            ),
+            (
+                "The trainer was successfully replaced in TrainerBridge."
+                if replacing_trainer
+                else "The trainer was successfully copied into TrainerBridge."
             )
         )
 
@@ -1663,6 +2317,11 @@ class MainWindow(QMainWindow):
         )
 
         dialog.exec()
+
+        if dialog.prefix_restored:
+            self.scan_games(
+                select_appid=game.appid
+            )
 
 
     def open_components_dialog(self):
@@ -1803,7 +2462,6 @@ class MainWindow(QMainWindow):
         self.session_thread.start()
 
 
-    @Slot(object)
     @Slot(object)
     def _session_started(
         self,
@@ -1954,7 +2612,21 @@ class MainWindow(QMainWindow):
             QMessageBox.StandardButton.Close
         )
 
+        do_not_show_again = QCheckBox(
+            "Do not show this hint again"
+        )
+        message_box.setCheckBox(
+            do_not_show_again
+        )
+
         message_box.exec()
+
+        if do_not_show_again.isChecked():
+
+            self.settings.setValue(
+                EARLY_TRAINER_EXIT_NOTICE_KEY,
+                True
+            )
 
         if message_box.clickedButton() is components_button:
 
@@ -2066,6 +2738,12 @@ class MainWindow(QMainWindow):
                         EARLY_TRAINER_EXIT_SECONDS
                     )
 
+                    show_early_exit_hint = not self.settings.value(
+                        EARLY_TRAINER_EXIT_NOTICE_KEY,
+                        False,
+                        type=bool
+                    )
+
                     if exited_early and game:
 
                         self._append_log(
@@ -2073,11 +2751,13 @@ class MainWindow(QMainWindow):
                             "It may require additional Prefix Components."
                         )
 
-                        self._show_early_trainer_exit_warning(
-                            game,
-                            return_code,
-                            runtime_seconds
-                        )
+                        if show_early_exit_hint:
+
+                            self._show_early_trainer_exit_warning(
+                                game,
+                                return_code,
+                                runtime_seconds
+                            )
 
         self._update_action_buttons()
 
@@ -2128,6 +2808,20 @@ def run_self_test():
 
         checks.append(
             ("vdf import", False, str(error))
+        )
+
+    try:
+
+        import zstandard  # noqa: F401
+
+        checks.append(
+            ("zstandard import", True, "OK")
+        )
+
+    except Exception as error:
+
+        checks.append(
+            ("zstandard import", False, str(error))
         )
 
     for relative_path in (
@@ -2219,6 +2913,10 @@ def main():
                 )
             )
         )
+    )
+
+    apply_theme(
+        application
     )
 
     window = MainWindow()

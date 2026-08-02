@@ -1,4 +1,4 @@
-TrainerBridge — Third-Party Notices
+TrainerBridge - Third-Party Notices
 
 This beta build uses the following third-party software:
 
@@ -13,6 +13,10 @@ GNU Lesser General Public License v3 and applicable Qt third-party licenses
 vdf
 https://github.com/ValvePython/vdf
 MIT License
+
+zstandard
+https://pypi.org/project/zstandard/
+BSD License
 
 PyInstaller (build-time tooling)
 https://pyinstaller.org/

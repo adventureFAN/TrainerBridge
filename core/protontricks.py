@@ -7,6 +7,7 @@ import shutil
 import subprocess
 
 from dataclasses import dataclass
+from pathlib import Path
 
 from core.paths import CACHE_DIR
 from core.host_process import host_environment
@@ -769,82 +770,145 @@ class ProtontricksManager:
         return None
 
 
+    def _find_prefix_path(
+        self,
+        appid
+    ):
+
+        steam_info = get_steam_info()
+
+        for library in steam_info.get("libraries", []):
+
+            candidate = (
+                Path(library)
+                / "steamapps"
+                / "compatdata"
+                / str(appid)
+                / "pfx"
+            )
+
+            if candidate.is_dir():
+                return candidate
+
+        return None
+
+
+    def _read_user_registry(
+        self,
+        appid
+    ):
+
+        prefix_path = self._find_prefix_path(
+            appid
+        )
+
+        if prefix_path is None:
+
+            raise ProtontricksError(
+                "TrainerBridge could not find the Proton prefix "
+                "for this game. The prefix was not modified."
+            )
+
+        registry_path = prefix_path / "user.reg"
+
+        if not registry_path.is_file():
+
+            raise ProtontricksError(
+                "TrainerBridge could not read the prefix registry "
+                f"because this file is missing: {registry_path}"
+            )
+
+        raw_data = registry_path.read_bytes()
+
+        if raw_data.startswith((b"\xff\xfe", b"\xfe\xff")):
+            try:
+                return raw_data.decode("utf-16")
+            except UnicodeDecodeError:
+                pass
+
+        for encoding in (
+            "utf-8",
+            "cp1252"
+        ):
+
+            try:
+                return raw_data.decode(encoding)
+            except UnicodeDecodeError:
+                continue
+
+        return raw_data.decode(
+            "utf-8",
+            errors="replace"
+        )
+
+
     def get_windows_version(
         self,
         appid
     ):
 
-        winecfg_return_code, winecfg_output = (
-            self._run_capture_allow_failure(
-                "-c",
-                "winecfg /v",
-                str(appid),
-                force_english=True
-            )
+        registry_text = self._read_user_registry(
+            appid
         )
 
-        if winecfg_return_code == 0:
-
-            version = self._parse_windows_version(
-                winecfg_output
-            )
-
-            if version:
-                return version
-
-        registry_return_code, registry_output = (
-            self._run_capture_allow_failure(
-                "-c",
-                (
-                    'reg query "HKCU\\Software\\Wine" '
-                    '/v Version'
-                ),
-                str(appid),
-                force_english=True
-            )
+        current_section = None
+        section_pattern = re.compile(
+            r"^\[([^]]+)\](?:\s+\d+)?$"
+        )
+        value_pattern = re.compile(
+            r'^"Version"="([^"\r\n]+)"$',
+            re.IGNORECASE
         )
 
-        if registry_return_code == 0:
+        for raw_line in registry_text.splitlines():
 
-            version = self._parse_registry_windows_version(
-                registry_output
+            line = raw_line.strip()
+
+            section_match = section_pattern.match(
+                line
             )
 
-            if version:
-                return version
+            if section_match:
 
-        registry_output_lower = registry_output.lower()
+                current_section = section_match.group(1)
+                continue
 
-        missing_value_markers = (
-            "unable to find",
-            "cannot find",
-            "not found",
-            "specified registry key",
-            "specified registry value"
-        )
+            if current_section is None:
+                continue
 
-        registry_value_is_missing = any(
-            marker in registry_output_lower
-            for marker in missing_value_markers
-        )
+            normalized_section = current_section.replace(
+                "\\\\",
+                "\\"
+            ).lower()
 
-        if (
-            registry_value_is_missing
-            or
-            not registry_output.strip()
-        ):
+            if normalized_section != "software\\wine":
+                continue
 
-            # Modern Wine and Proton prefixes use Windows 10
-            # when no explicit global Version override exists.
-            return "win10"
+            value_match = value_pattern.match(
+                line
+            )
 
-        raise ProtontricksError(
-            "TrainerBridge could not detect the current "
-            "Windows compatibility version of the prefix. "
-            "The prefix was not modified.\n\n"
-            f"winecfg output:\n{winecfg_output}\n\n"
-            f"Registry output:\n{registry_output}"
-        )
+            if not value_match:
+                continue
+
+            candidate = value_match.group(1).lower()
+            candidate = WINECFG_VERSION_TO_VERB.get(
+                candidate,
+                candidate
+            )
+
+            if candidate in WINDOWS_VERSION_VERBS:
+                return candidate
+
+            raise ProtontricksError(
+                "TrainerBridge found an unsupported Windows "
+                "compatibility version in the prefix registry: "
+                f"{candidate}"
+            )
+
+        # Modern Wine and Proton prefixes use Windows 10 when no explicit
+        # global Version override exists in HKCU\Software\Wine.
+        return "win10"
 
 
     def set_windows_version(
@@ -1359,6 +1423,19 @@ class ProtontricksManager:
                         appid,
                         final_windows_version
                     )
+
+                    verified_windows_version = self.get_windows_version(
+                        appid
+                    )
+
+                    if verified_windows_version != final_windows_version:
+
+                        raise ProtontricksError(
+                            "TrainerBridge attempted to restore the Windows "
+                            "compatibility version, but verification failed. "
+                            f"Expected {final_windows_version}, found "
+                            f"{verified_windows_version}."
+                        )
 
                     final_label = WINDOWS_VERSION_LABELS.get(
                         final_windows_version,

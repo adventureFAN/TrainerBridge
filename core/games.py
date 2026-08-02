@@ -49,6 +49,7 @@ def find_games(libraries):
 
                 appid = app["appid"]
                 name = app["name"]
+                install_dir = app.get("installdir")
 
                 if appid in found_appids:
                     continue
@@ -73,6 +74,14 @@ def find_games(libraries):
                         prefix=(
                             prefix
                             if prefix.exists()
+                            else None
+                        ),
+                        game_path=(
+                            library
+                            / "steamapps"
+                            / "common"
+                            / install_dir
+                            if install_dir
                             else None
                         )
                     )

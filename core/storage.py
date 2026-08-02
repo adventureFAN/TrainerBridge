@@ -154,10 +154,26 @@ def import_trainer(appid, trainer_file):
         / trainer_file.name
     )
 
-    shutil.copy2(
-        trainer_file,
-        target_file
-    )
+    if trainer_file.resolve() != target_file.resolve():
+        temporary_file = target_dir / f".{trainer_file.name}.importing"
+
+        shutil.copy2(
+            trainer_file,
+            temporary_file
+        )
+
+        temporary_file.replace(
+            target_file
+        )
+
+    for existing_file in target_dir.iterdir():
+        if existing_file == target_file:
+            continue
+
+        if existing_file.is_dir():
+            shutil.rmtree(existing_file)
+        else:
+            existing_file.unlink()
 
     trainers = load_trainers()
 
@@ -170,3 +186,20 @@ def import_trainer(appid, trainer_file):
     )
 
     return target_file
+
+
+def remove_trainer(appid):
+
+    trainers = load_trainers()
+    trainer_data = trainers.pop(str(appid), None)
+
+    target_dir = TRAINER_DIR / str(appid)
+
+    if target_dir.exists():
+        shutil.rmtree(target_dir)
+
+    if trainer_data is not None:
+        save_trainers(trainers)
+        return True
+
+    return False

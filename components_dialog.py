@@ -1,3 +1,6 @@
+import threading
+from datetime import datetime
+
 from PySide6.QtCore import (
     QObject,
     QSettings,
@@ -13,6 +16,7 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QDialog,
     QFormLayout,
+    QGroupBox,
     QHBoxLayout,
     QHeaderView,
     QLabel,
@@ -28,6 +32,19 @@ from PySide6.QtWidgets import (
     QWidget
 )
 
+from core.backup_manager import (
+    BackupCancelled,
+    BackupManager
+)
+from core.preferences import (
+    BACKUP_METHOD_AUTO,
+    BACKUP_METHOD_KEY,
+    BACKUP_POLICY_ALWAYS,
+    BACKUP_POLICY_ASK,
+    BACKUP_POLICY_KEY,
+    BACKUP_POLICY_NEVER,
+    remember_window_geometry
+)
 from core.protontricks import (
     ProtontricksManager,
     SUPPORTED_CATEGORIES,
@@ -141,6 +158,98 @@ class ComponentInstallWorker(QObject):
         )
 
 
+class BackupWorker(QObject):
+
+    finished = Signal(object)
+    failed = Signal(str)
+    progress = Signal(int, int, str)
+
+
+    def __init__(
+        self,
+        backup_manager,
+        action,
+        requested_method=BACKUP_METHOD_AUTO,
+        components=(),
+        windows_version=None
+    ):
+
+        super().__init__()
+
+        self.backup_manager = backup_manager
+        self.action = action
+        self.requested_method = requested_method
+        self.components = tuple(components)
+        self.windows_version = windows_version
+        self.cancel_event = threading.Event()
+
+
+    def cancel(self):
+        self.cancel_event.set()
+
+
+    def _report_progress(
+        self,
+        processed,
+        total,
+        message
+    ):
+
+        self.progress.emit(
+            int(processed),
+            int(total),
+            str(message)
+        )
+
+
+    @Slot()
+    def run(self):
+
+        try:
+
+            if self.action == "create":
+
+                result = self.backup_manager.create_backup(
+                    requested_method=self.requested_method,
+                    components=self.components,
+                    windows_version=self.windows_version,
+                    progress_callback=self._report_progress,
+                    cancel_event=self.cancel_event
+                )
+
+            elif self.action == "restore":
+
+                result = self.backup_manager.restore_backup(
+                    progress_callback=self._report_progress
+                )
+
+            else:
+
+                raise ValueError(
+                    f"Unknown backup action: {self.action}"
+                )
+
+        except BackupCancelled as error:
+
+            self.failed.emit(
+                str(error)
+            )
+
+            return
+
+        except Exception as error:
+
+            self.failed.emit(
+                f"{type(error).__name__}: {error}"
+            )
+
+            return
+
+        self.finished.emit(
+            result
+        )
+
+
 class ComponentsDialog(QDialog):
 
     def __init__(
@@ -158,6 +267,7 @@ class ComponentsDialog(QDialog):
 
         self.game = game
         self.manager = ProtontricksManager.detect()
+        self.backup_manager = BackupManager(game)
 
         self.components = []
         self.component_trees = {}
@@ -173,11 +283,17 @@ class ComponentsDialog(QDialog):
         self.install_thread = None
         self.install_worker = None
 
+        self.backup_thread = None
+        self.backup_worker = None
+        self.backup_action = None
+        self.pending_install_components = None
+        self.prefix_restored = False
+
         self.reload_after_install = False
         self.updating_items = False
 
         self.setWindowTitle(
-            f"Prefix Components — {game.name}"
+            f"Prefix Components - {game.name}"
         )
 
         self.resize(
@@ -397,12 +513,70 @@ class ComponentsDialog(QDialog):
             "Ready"
         )
 
-        main_layout.addWidget(
-            self.progress_bar
+        progress_layout = QHBoxLayout()
+        progress_layout.addWidget(
+            self.progress_bar,
+            1
+        )
+
+        self.cancel_operation_button = QPushButton(
+            "Cancel backup"
+        )
+        self.cancel_operation_button.setVisible(False)
+        self.cancel_operation_button.clicked.connect(
+            self._cancel_backup_operation
+        )
+        progress_layout.addWidget(
+            self.cancel_operation_button
+        )
+
+        main_layout.addLayout(
+            progress_layout
         )
 
         main_layout.addWidget(
             self.status_label
+        )
+
+        backup_group = QGroupBox(
+            "Safety Backup"
+        )
+        backup_layout = QHBoxLayout(
+            backup_group
+        )
+
+        self.backup_status_label = QLabel(
+            "No safety backup exists for this game."
+        )
+        self.backup_status_label.setWordWrap(True)
+
+        self.restore_backup_button = QPushButton(
+            "Restore Backup"
+        )
+        self.restore_backup_button.clicked.connect(
+            self.restore_backup
+        )
+
+        self.delete_backup_button = QPushButton(
+            "Delete Backup"
+        )
+        self.delete_backup_button.clicked.connect(
+            self.delete_backup
+        )
+
+        backup_layout.addWidget(
+            self.backup_status_label,
+            1
+        )
+        backup_layout.addWidget(
+            self.restore_backup_button
+        )
+        backup_layout.addWidget(
+            self.delete_backup_button
+        )
+
+        main_layout.addWidget(
+            backup_group
         )
 
         self.category_tabs = QTabWidget()
@@ -571,6 +745,7 @@ class ComponentsDialog(QDialog):
             button_layout
         )
 
+        self._refresh_backup_status()
         self._update_buttons()
 
 
@@ -729,15 +904,17 @@ class ComponentsDialog(QDialog):
 
     def _restore_ui_state(self):
 
-        geometry = self.settings.value(
-            COMPONENTS_GEOMETRY_KEY
-        )
+        if remember_window_geometry(self.settings):
 
-        if geometry:
-
-            self.restoreGeometry(
-                geometry
+            geometry = self.settings.value(
+                COMPONENTS_GEOMETRY_KEY
             )
+
+            if geometry:
+
+                self.restoreGeometry(
+                    geometry
+                )
 
         installed_only = self.settings.value(
             COMPONENTS_INSTALLED_ONLY_KEY,
@@ -775,10 +952,18 @@ class ComponentsDialog(QDialog):
 
     def _save_ui_state(self):
 
-        self.settings.setValue(
-            COMPONENTS_GEOMETRY_KEY,
-            self.saveGeometry()
-        )
+        if remember_window_geometry(self.settings):
+
+            self.settings.setValue(
+                COMPONENTS_GEOMETRY_KEY,
+                self.saveGeometry()
+            )
+
+        else:
+
+            self.settings.remove(
+                COMPONENTS_GEOMETRY_KEY
+            )
 
         self.settings.setValue(
             COMPONENTS_INSTALLED_ONLY_KEY,
@@ -831,6 +1016,8 @@ class ComponentsDialog(QDialog):
             self.load_thread is not None
             or
             self.install_thread is not None
+            or
+            self.backup_thread is not None
         )
 
 
@@ -843,6 +1030,13 @@ class ComponentsDialog(QDialog):
         self.progress_bar.setVisible(
             busy
         )
+
+        if busy and self.backup_thread is None:
+            self.progress_bar.setRange(0, 0)
+
+        if not busy:
+            self.cancel_operation_button.setVisible(False)
+            self.progress_bar.setRange(0, 0)
 
         self.search_field.setEnabled(
             not busy
@@ -1636,13 +1830,110 @@ class ComponentsDialog(QDialog):
             not self._is_busy()
         )
 
+        backup_exists = self.backup_manager.load_info() is not None
 
-    def install_selected_components(self):
+        self.restore_backup_button.setEnabled(
+            backup_exists
+            and
+            not self._is_busy()
+        )
 
-        component_names = self._checked_component_names()
+        self.delete_backup_button.setEnabled(
+            backup_exists
+            and
+            not self._is_busy()
+        )
 
-        if not component_names:
+
+    def _refresh_backup_status(self):
+
+        info = self.backup_manager.load_info()
+
+        if info is None:
+
+            self.backup_status_label.setText(
+                "No safety backup exists for this game."
+            )
+
+            self._update_buttons()
             return
+
+        method_labels = {
+            "compressed": "Compressed archive",
+            "reflink": "Copy-on-write folder",
+            "folder": "Folder copy"
+        }
+
+        created_text = info.created_at
+
+        try:
+            created_text = (
+                datetime.fromisoformat(info.created_at)
+                .astimezone()
+                .strftime("%Y-%m-%d %H:%M")
+            )
+        except (TypeError, ValueError):
+            pass
+
+        self.backup_status_label.setText(
+            f"Backup from {created_text} - "
+            f"{method_labels.get(info.method, info.method)} - "
+            f"{BackupManager.format_size(info.stored_size)} stored "
+            f"({BackupManager.format_size(info.source_size)} original)"
+        )
+
+        self.backup_status_label.setToolTip(
+            str(info.backup_path)
+        )
+
+        self._update_buttons()
+
+
+    def _prefix_operation_is_blocked(self):
+
+        if self.manager and self.manager.game_is_running(
+            self.game.appid
+        ):
+
+            QMessageBox.warning(
+                self,
+                "Game is still running",
+                (
+                    "Close the game completely before backing up, "
+                    "restoring, or modifying its Proton prefix."
+                )
+            )
+
+            return True
+
+        parent = self.parent()
+
+        if (
+            parent is not None
+            and
+            hasattr(parent, "_trainer_is_running")
+            and
+            parent._trainer_is_running()
+        ):
+
+            QMessageBox.warning(
+                self,
+                "Trainer is still running",
+                (
+                    "Close the trainer completely before backing up, "
+                    "restoring, or modifying the Proton prefix."
+                )
+            )
+
+            return True
+
+        return False
+
+
+    def _component_preview_text(
+        self,
+        component_names
+    ):
 
         preview_names = component_names[:10]
 
@@ -1658,37 +1949,542 @@ class ComponentsDialog(QDialog):
                 f"• ...and {len(component_names) - len(preview_names)} more"
             )
 
+        return component_list
+
+
+    def _ask_backup_choice(
+        self,
+        component_names
+    ):
+
+        component_list = self._component_preview_text(
+            component_names
+        )
+
+        message_box = QMessageBox(self)
+        message_box.setIcon(QMessageBox.Icon.Warning)
+        message_box.setWindowTitle("Modify Proton prefix")
+        message_box.setText(
+            "Installing components can permanently modify the Proton prefix."
+        )
+        message_box.setInformativeText(
+            f"The following {len(component_names)} component(s) will be "
+            f"installed for {self.game.name}:\n\n"
+            f"{component_list}\n\n"
+            "A complete safety backup is strongly recommended. It protects "
+            "the registry, DLL overrides, runtimes, files, Proton metadata, "
+            "and local saves stored inside compatdata.\n\n"
+            "The game and its trainer must be completely closed."
+        )
+
+        remember_choice = QCheckBox(
+            "Remember my choice"
+        )
+        message_box.setCheckBox(
+            remember_choice
+        )
+
+        create_button = message_box.addButton(
+            "Create Backup",
+            QMessageBox.ButtonRole.AcceptRole
+        )
+        ignore_button = message_box.addButton(
+            "Ignore & Continue",
+            QMessageBox.ButtonRole.DestructiveRole
+        )
+        cancel_button = message_box.addButton(
+            QMessageBox.StandardButton.Cancel
+        )
+
+        message_box.setDefaultButton(
+            create_button
+        )
+        message_box.exec()
+
+        clicked_button = message_box.clickedButton()
+
+        if clicked_button is create_button:
+            choice = "create"
+        elif clicked_button is ignore_button:
+            choice = "ignore"
+        else:
+            choice = "cancel"
+
+        if remember_choice.isChecked():
+
+            if choice == "create":
+
+                self.settings.setValue(
+                    BACKUP_POLICY_KEY,
+                    BACKUP_POLICY_ALWAYS
+                )
+
+            elif choice == "ignore":
+
+                self.settings.setValue(
+                    BACKUP_POLICY_KEY,
+                    BACKUP_POLICY_NEVER
+                )
+
+            self.settings.sync()
+
+        del cancel_button
+        return choice
+
+
+    def _confirm_backup_replacement(self):
+
+        if self.backup_manager.load_info() is None:
+            return True
+
         answer = QMessageBox.warning(
             self,
-            "Modify Proton prefix",
+            "Replace existing safety backup",
             (
-                f"The following {len(component_names)} component(s) "
-                f"will be installed into the Proton prefix of "
-                f"{self.game.name}:\n\n"
-                f"{component_list}\n\n"
-                "The game and its trainer must be completely closed.\n\n"
-                "TrainerBridge will preserve the prefix's current "
-                "Windows compatibility version. If you explicitly "
-                "selected a Windows version in Settings, that version "
-                "will be applied last.\n\n"
-                "Protontricks may open additional installer windows. "
-                "Do not close those windows early.\n\n"
-                "Start the installation now?"
+                "A safety backup already exists for this game.\n\n"
+                "Creating a new backup will replace the existing one only "
+                "after the new backup has been completed successfully."
             ),
             (
                 QMessageBox.StandardButton.Yes
                 |
-                QMessageBox.StandardButton.No
+                QMessageBox.StandardButton.Cancel
             ),
-            QMessageBox.StandardButton.No
+            QMessageBox.StandardButton.Cancel
+        )
+
+        return answer == QMessageBox.StandardButton.Yes
+
+
+    def _prepare_backup_for_installation(
+        self,
+        component_names
+    ):
+
+        if not self._confirm_backup_replacement():
+            return
+
+        try:
+
+            windows_version = (
+                self.manager.get_windows_version(
+                    self.game.appid
+                )
+                if self.manager
+                else None
+            )
+
+        except Exception:
+
+            windows_version = None
+
+        requested_method = str(
+            self.settings.value(
+                BACKUP_METHOD_KEY,
+                BACKUP_METHOD_AUTO
+            )
+        )
+
+        self.pending_install_components = tuple(
+            component_names
+        )
+
+        self._start_backup_operation(
+            action="create",
+            requested_method=requested_method,
+            components=component_names,
+            windows_version=windows_version
+        )
+
+
+    def _start_backup_operation(
+        self,
+        action,
+        requested_method=BACKUP_METHOD_AUTO,
+        components=(),
+        windows_version=None
+    ):
+
+        if self._is_busy():
+            return
+
+        if self._prefix_operation_is_blocked():
+            return
+
+        self.backup_action = action
+        self.backup_result = None
+        self.backup_error = None
+
+        self.backup_thread = QThread(self)
+        self.backup_worker = BackupWorker(
+            backup_manager=self.backup_manager,
+            action=action,
+            requested_method=requested_method,
+            components=components,
+            windows_version=windows_version
+        )
+
+        self.backup_worker.moveToThread(
+            self.backup_thread
+        )
+
+        self.backup_thread.started.connect(
+            self.backup_worker.run
+        )
+        self.backup_worker.progress.connect(
+            self._backup_progress
+        )
+        self.backup_worker.finished.connect(
+            self._backup_operation_finished
+        )
+        self.backup_worker.failed.connect(
+            self._backup_operation_failed
+        )
+        self.backup_worker.finished.connect(
+            self.backup_thread.quit
+        )
+        self.backup_worker.failed.connect(
+            self.backup_thread.quit
+        )
+        self.backup_worker.finished.connect(
+            self.backup_worker.deleteLater
+        )
+        self.backup_worker.failed.connect(
+            self.backup_worker.deleteLater
+        )
+        self.backup_thread.finished.connect(
+            self._backup_thread_finished
+        )
+
+        self._set_busy(
+            True,
+            (
+                "Creating safety backup..."
+                if action == "create"
+                else "Restoring safety backup..."
+            )
+        )
+
+        self.progress_bar.setRange(0, 100)
+        self.progress_bar.setValue(0)
+        self.cancel_operation_button.setVisible(
+            action == "create"
+        )
+        self.cancel_operation_button.setEnabled(
+            action == "create"
+        )
+
+        self.backup_thread.start()
+
+
+    @Slot(int, int, str)
+    def _backup_progress(
+        self,
+        processed,
+        total,
+        message
+    ):
+
+        if total > 0:
+
+            percentage = max(
+                0,
+                min(
+                    100,
+                    int(processed * 100 / total)
+                )
+            )
+
+            self.progress_bar.setRange(0, 100)
+            self.progress_bar.setValue(percentage)
+
+            self.status_label.setText(
+                f"{message} "
+                f"{BackupManager.format_size(processed)} of "
+                f"{BackupManager.format_size(total)}"
+            )
+
+        else:
+
+            self.progress_bar.setRange(0, 0)
+            self.status_label.setText(message)
+
+
+    def _cancel_backup_operation(self):
+
+        if (
+            self.backup_action != "create"
+            or
+            self.backup_worker is None
+        ):
+            return
+
+        self.cancel_operation_button.setEnabled(False)
+        self.status_label.setText(
+            "Cancelling safety backup..."
+        )
+        self.backup_worker.cancel()
+
+
+    @Slot(object)
+    def _backup_operation_finished(
+        self,
+        result
+    ):
+
+        self.backup_result = result
+
+
+    @Slot(str)
+    def _backup_operation_failed(
+        self,
+        message
+    ):
+
+        self.backup_error = message
+
+
+    @Slot()
+    def _backup_thread_finished(self):
+
+        thread = self.backup_thread
+        action = self.backup_action
+        result = self.backup_result
+        error = self.backup_error
+
+        self.backup_thread = None
+        self.backup_worker = None
+        self.backup_action = None
+
+        if thread:
+            thread.deleteLater()
+
+        self._set_busy(False)
+        self._refresh_backup_status()
+
+        if error:
+
+            if "cancelled" in error.lower():
+
+                self.pending_install_components = None
+                self.status_label.setText(
+                    "Safety backup cancelled. Component installation was not started."
+                )
+
+                return
+
+            self.status_label.setText(
+                "Safety backup operation failed."
+            )
+
+            if action == "create" and self.pending_install_components:
+
+                message_box = QMessageBox(self)
+                message_box.setIcon(QMessageBox.Icon.Warning)
+                message_box.setWindowTitle("Safety backup failed")
+                message_box.setText(
+                    "The safety backup could not be created."
+                )
+                message_box.setInformativeText(
+                    f"{error}\n\n"
+                    "Continuing without a backup can leave the prefix "
+                    "unrecoverable if the component installation changes "
+                    "something unexpectedly."
+                )
+
+                ignore_button = message_box.addButton(
+                    "Ignore & Continue",
+                    QMessageBox.ButtonRole.DestructiveRole
+                )
+                message_box.addButton(
+                    QMessageBox.StandardButton.Cancel
+                )
+                message_box.exec()
+
+                pending_components = self.pending_install_components
+                self.pending_install_components = None
+
+                if message_box.clickedButton() is ignore_button:
+                    self._start_installation(pending_components)
+
+            else:
+
+                QMessageBox.critical(
+                    self,
+                    "Safety backup failed",
+                    error
+                )
+
+            return
+
+        if action == "create":
+
+            pending_components = self.pending_install_components
+            self.pending_install_components = None
+
+            self.status_label.setText(
+                "Safety backup completed. Starting component installation..."
+            )
+
+            if pending_components:
+                QTimer.singleShot(
+                    0,
+                    lambda names=pending_components: self._start_installation(
+                        names
+                    )
+                )
+
+        elif action == "restore":
+
+            self.prefix_restored = True
+            self.status_label.setText(
+                "Safety backup restored successfully."
+            )
+
+            QMessageBox.information(
+                self,
+                "Backup restored",
+                (
+                    "The complete Proton compatdata backup was restored "
+                    "successfully. TrainerBridge will refresh the prefix "
+                    "information."
+                )
+            )
+
+            QTimer.singleShot(
+                0,
+                lambda: self.load_components(force_refresh=False)
+            )
+
+        del result
+
+
+    def restore_backup(self):
+
+        info = self.backup_manager.load_info()
+
+        if info is None or self._is_busy():
+            return
+
+        if self._prefix_operation_is_blocked():
+            return
+
+        answer = QMessageBox.warning(
+            self,
+            "Restore safety backup",
+            (
+                f"Restore the complete Proton compatdata backup for "
+                f"{self.game.name}?\n\n"
+                "All current prefix changes will be replaced by the backup. "
+                "Local save files stored inside the prefix will also return "
+                "to the backup state.\n\n"
+                "The current compatdata directory is kept until the restored "
+                "copy has been prepared and verified."
+            ),
+            (
+                QMessageBox.StandardButton.Yes
+                |
+                QMessageBox.StandardButton.Cancel
+            ),
+            QMessageBox.StandardButton.Cancel
         )
 
         if answer != QMessageBox.StandardButton.Yes:
             return
 
-        self._start_installation(
-            component_names
+        self._start_backup_operation(
+            action="restore"
         )
+
+
+    def delete_backup(self):
+
+        info = self.backup_manager.load_info()
+
+        if info is None or self._is_busy():
+            return
+
+        answer = QMessageBox.warning(
+            self,
+            "Delete safety backup",
+            (
+                f"Permanently delete the safety backup for "
+                f"{self.game.name}?\n\n"
+                "This cannot be undone."
+            ),
+            (
+                QMessageBox.StandardButton.Yes
+                |
+                QMessageBox.StandardButton.Cancel
+            ),
+            QMessageBox.StandardButton.Cancel
+        )
+
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+
+        try:
+            self.backup_manager.delete_backup()
+        except Exception as error:
+            QMessageBox.critical(
+                self,
+                "Backup deletion failed",
+                str(error)
+            )
+            return
+
+        self._refresh_backup_status()
+        self.status_label.setText(
+            "Safety backup deleted."
+        )
+
+
+    def install_selected_components(self):
+
+        component_names = self._checked_component_names()
+
+        if not component_names:
+            return
+
+        if self._prefix_operation_is_blocked():
+            return
+
+        backup_policy = str(
+            self.settings.value(
+                BACKUP_POLICY_KEY,
+                BACKUP_POLICY_ASK
+            )
+        )
+
+        if backup_policy == BACKUP_POLICY_ALWAYS:
+
+            self._prepare_backup_for_installation(
+                component_names
+            )
+
+        elif backup_policy == BACKUP_POLICY_NEVER:
+
+            self._start_installation(
+                component_names
+            )
+
+        else:
+
+            choice = self._ask_backup_choice(
+                component_names
+            )
+
+            if choice == "create":
+
+                self._prepare_backup_for_installation(
+                    component_names
+                )
+
+            elif choice == "ignore":
+
+                self._start_installation(
+                    component_names
+                )
 
 
     def _start_installation(
@@ -1862,8 +2658,8 @@ class ComponentsDialog(QDialog):
                 self,
                 "Operation in progress",
                 (
-                    "Please wait until the current "
-                    "Protontricks operation has finished."
+                    "Please wait until the current operation "
+                    "has finished."
                 )
             )
 
