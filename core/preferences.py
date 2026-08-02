@@ -1,4 +1,4 @@
-from PySide6.QtCore import QSettings
+from PySide6.QtCore import QSettings, Qt
 from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import QApplication, QStyleFactory
 
@@ -69,13 +69,82 @@ def _restore_system_appearance(application):
     application.setStyleSheet("")
 
 
-def _light_palette(application):
-    style = QStyleFactory.create("Fusion")
-    if style is not None:
-        application.setStyle(style)
-        return style.standardPalette()
+def _set_color_scheme(application, theme):
+    """Tell Qt and the window manager which color scheme is intended.
 
-    return QPalette()
+    Qt versions before setColorScheme support simply ignore this hint.
+    """
+    try:
+        style_hints = application.styleHints()
+        setter = getattr(style_hints, "setColorScheme", None)
+        color_scheme = getattr(Qt, "ColorScheme", None)
+
+        if setter is None or color_scheme is None:
+            return
+
+        if theme == THEME_LIGHT:
+            setter(color_scheme.Light)
+        elif theme == THEME_DARK:
+            setter(color_scheme.Dark)
+        else:
+            setter(color_scheme.Unknown)
+    except (AttributeError, TypeError, RuntimeError):
+        pass
+
+
+def _apply_disabled_colors(palette, text, button_text, window_text):
+    palette.setColor(
+        QPalette.ColorGroup.Disabled,
+        QPalette.ColorRole.Text,
+        text
+    )
+    palette.setColor(
+        QPalette.ColorGroup.Disabled,
+        QPalette.ColorRole.ButtonText,
+        button_text
+    )
+    palette.setColor(
+        QPalette.ColorGroup.Disabled,
+        QPalette.ColorRole.WindowText,
+        window_text
+    )
+
+
+def _light_palette():
+    palette = QPalette()
+
+    palette.setColor(QPalette.ColorRole.Window, QColor(246, 246, 246))
+    palette.setColor(QPalette.ColorRole.WindowText, QColor(25, 25, 25))
+    palette.setColor(QPalette.ColorRole.Base, QColor(255, 255, 255))
+    palette.setColor(QPalette.ColorRole.AlternateBase, QColor(242, 242, 242))
+    palette.setColor(QPalette.ColorRole.ToolTipBase, QColor(255, 255, 220))
+    palette.setColor(QPalette.ColorRole.ToolTipText, QColor(20, 20, 20))
+    palette.setColor(QPalette.ColorRole.Text, QColor(25, 25, 25))
+    palette.setColor(QPalette.ColorRole.Button, QColor(240, 240, 240))
+    palette.setColor(QPalette.ColorRole.ButtonText, QColor(25, 25, 25))
+    palette.setColor(QPalette.ColorRole.BrightText, QColor(200, 0, 0))
+    palette.setColor(QPalette.ColorRole.Link, QColor(0, 92, 180))
+    palette.setColor(QPalette.ColorRole.LinkVisited, QColor(95, 55, 150))
+    palette.setColor(QPalette.ColorRole.Highlight, QColor(48, 126, 190))
+    palette.setColor(QPalette.ColorRole.HighlightedText, QColor(255, 255, 255))
+    palette.setColor(QPalette.ColorRole.Light, QColor(255, 255, 255))
+    palette.setColor(QPalette.ColorRole.Midlight, QColor(248, 248, 248))
+    palette.setColor(QPalette.ColorRole.Dark, QColor(160, 160, 160))
+    palette.setColor(QPalette.ColorRole.Mid, QColor(190, 190, 190))
+    palette.setColor(QPalette.ColorRole.Shadow, QColor(105, 105, 105))
+
+    placeholder_role = getattr(QPalette.ColorRole, "PlaceholderText", None)
+    if placeholder_role is not None:
+        palette.setColor(placeholder_role, QColor(115, 115, 115))
+
+    _apply_disabled_colors(
+        palette,
+        QColor(145, 145, 145),
+        QColor(145, 145, 145),
+        QColor(145, 145, 145)
+    )
+
+    return palette
 
 
 def _dark_palette():
@@ -92,11 +161,25 @@ def _dark_palette():
     palette.setColor(QPalette.ColorRole.ButtonText, QColor(235, 235, 235))
     palette.setColor(QPalette.ColorRole.BrightText, QColor(255, 90, 90))
     palette.setColor(QPalette.ColorRole.Link, QColor(90, 170, 255))
+    palette.setColor(QPalette.ColorRole.LinkVisited, QColor(190, 130, 255))
     palette.setColor(QPalette.ColorRole.Highlight, QColor(55, 120, 190))
     palette.setColor(QPalette.ColorRole.HighlightedText, QColor(255, 255, 255))
-    palette.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.Text, QColor(135, 135, 135))
-    palette.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.ButtonText, QColor(135, 135, 135))
-    palette.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.WindowText, QColor(135, 135, 135))
+    palette.setColor(QPalette.ColorRole.Light, QColor(85, 85, 85))
+    palette.setColor(QPalette.ColorRole.Midlight, QColor(70, 70, 70))
+    palette.setColor(QPalette.ColorRole.Dark, QColor(25, 25, 25))
+    palette.setColor(QPalette.ColorRole.Mid, QColor(38, 38, 38))
+    palette.setColor(QPalette.ColorRole.Shadow, QColor(12, 12, 12))
+
+    placeholder_role = getattr(QPalette.ColorRole, "PlaceholderText", None)
+    if placeholder_role is not None:
+        palette.setColor(placeholder_role, QColor(145, 145, 145))
+
+    _apply_disabled_colors(
+        palette,
+        QColor(135, 135, 135),
+        QColor(135, 135, 135),
+        QColor(135, 135, 135)
+    )
 
     return palette
 
@@ -123,13 +206,19 @@ def apply_theme(application=None, theme=None):
         selected_theme = THEME_SYSTEM
 
     if selected_theme == THEME_SYSTEM:
+        _set_color_scheme(application, THEME_SYSTEM)
         _restore_system_appearance(application)
 
     elif selected_theme == THEME_LIGHT:
+        _set_color_scheme(application, THEME_LIGHT)
+        style = QStyleFactory.create("Fusion")
+        if style is not None:
+            application.setStyle(style)
         application.setStyleSheet("")
-        application.setPalette(_light_palette(application))
+        application.setPalette(_light_palette())
 
     else:
+        _set_color_scheme(application, THEME_DARK)
         style = QStyleFactory.create("Fusion")
         if style is not None:
             application.setStyle(style)

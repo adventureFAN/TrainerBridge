@@ -162,7 +162,9 @@ class BackupWorker(QObject):
 
     finished = Signal(object)
     failed = Signal(str)
-    progress = Signal(int, int, str)
+    # Python objects are used for byte counters because Qt's plain int
+    # signal type is limited to signed 32-bit values (about 2 GiB).
+    progress = Signal(object, object, str)
 
 
     def __init__(
@@ -196,8 +198,8 @@ class BackupWorker(QObject):
     ):
 
         self.progress.emit(
-            int(processed),
-            int(total),
+            int(processed) if processed is not None else None,
+            int(total) if total is not None else None,
             str(message)
         )
 
@@ -2177,7 +2179,7 @@ class ComponentsDialog(QDialog):
         self.backup_thread.start()
 
 
-    @Slot(int, int, str)
+    @Slot(object, object, str)
     def _backup_progress(
         self,
         processed,
@@ -2185,13 +2187,20 @@ class ComponentsDialog(QDialog):
         message
     ):
 
-        if total > 0:
+        try:
+            processed_value = int(processed or 0)
+            total_value = int(total or 0)
+        except (TypeError, ValueError, OverflowError):
+            processed_value = 0
+            total_value = 0
+
+        if total_value > 0:
 
             percentage = max(
                 0,
                 min(
                     100,
-                    int(processed * 100 / total)
+                    int(processed_value * 100 / total_value)
                 )
             )
 
@@ -2200,8 +2209,8 @@ class ComponentsDialog(QDialog):
 
             self.status_label.setText(
                 f"{message} "
-                f"{BackupManager.format_size(processed)} of "
-                f"{BackupManager.format_size(total)}"
+                f"{BackupManager.format_size(processed_value)} of "
+                f"{BackupManager.format_size(total_value)}"
             )
 
         else:

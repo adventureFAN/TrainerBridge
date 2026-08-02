@@ -422,6 +422,52 @@ class BackupManager:
                         else:
                             archive.addfile(tar_info)
 
+    def _validate_archive(self, archive_path):
+        """Read a compressed backup to the end before publishing it.
+
+        This verifies both the Zstandard stream and the TAR structure and
+        confirms that the archive contains a Proton prefix. A backup is only
+        published after this validation succeeds.
+        """
+        zstandard = self._require_zstandard()
+        archive_path = Path(archive_path)
+
+        found_compatdata = False
+        found_prefix = False
+        member_count = 0
+
+        try:
+            with archive_path.open("rb") as raw_file:
+                with zstandard.ZstdDecompressor().stream_reader(raw_file) as reader:
+                    with tarfile.open(fileobj=reader, mode="r|") as archive:
+                        for member in archive:
+                            member_count += 1
+                            parts = Path(member.name).parts
+
+                            if parts and parts[0] == "compatdata":
+                                found_compatdata = True
+
+                            if (
+                                len(parts) >= 2
+                                and parts[0] == "compatdata"
+                                and parts[1] == "pfx"
+                            ):
+                                found_prefix = True
+
+        except (OSError, EOFError, tarfile.TarError, zstandard.ZstdError) as error:
+            raise BackupError(
+                "The compressed safety backup could not be verified and was "
+                "not saved.\n\n"
+                f"{type(error).__name__}: {error}"
+            ) from error
+
+        if member_count == 0 or not found_compatdata or not found_prefix:
+            raise BackupError(
+                "The compressed safety backup did not contain a complete "
+                "Proton compatdata directory and was not saved."
+            )
+
+
     def _safe_member_destination(self, target_root, member_name):
         target_root = Path(target_root).resolve()
         destination = (target_root / member_name).resolve(strict=False)
@@ -569,6 +615,17 @@ class BackupManager:
                     report_increment,
                     cancel_event
                 )
+
+                self._check_cancelled(cancel_event)
+
+                if progress_callback:
+                    progress_callback(
+                        None,
+                        None,
+                        "Verifying compressed safety backup..."
+                    )
+
+                self._validate_archive(payload)
 
             self._check_cancelled(cancel_event)
             stored_size = self._stored_size(payload)
