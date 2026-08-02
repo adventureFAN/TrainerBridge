@@ -68,15 +68,20 @@ TRAINER={values["trainer"]}
 [[ -d "$WINEPREFIX_PATH" ]] || {{ echo "Proton prefix not found: $WINEPREFIX_PATH" >&2; exit 1; }}
 
 session_detected() {{
-    local environment_file
+    local cmdline_file
+    local cmdline
 
-    for environment_file in /proc/[0-9]*/environ; do
-        [[ -r "$environment_file" ]] || continue
+    for cmdline_file in /proc/[0-9]*/cmdline; do
+        [[ -r "$cmdline_file" ]] || continue
 
-        if grep -azFxq "SteamAppId=$APPID" "$environment_file" 2>/dev/null \
-            && grep -azFxq "WINEPREFIX=$WINEPREFIX_PATH" "$environment_file" 2>/dev/null; then
-            return 0
-        fi
+        cmdline="$(tr '\0' ' ' < "$cmdline_file" 2>/dev/null || true)"
+
+        [[ "$cmdline" == *"SteamLaunch"* ]] || continue
+        [[ "$cmdline" == *"AppId=$APPID"* ]] || continue
+        [[ "${{cmdline,,}}" != *"iscriptevaluator.exe"* ]] || continue
+        [[ " $cmdline " != *" Install=1 "* ]] || continue
+
+        return 0
     done
 
     return 1
@@ -87,14 +92,18 @@ if ! session_detected; then
     {values["launch"]} >/dev/null 2>&1 &
 fi
 
+SESSION_TIMEOUT=60
+SESSION_STABLE_SECONDS=5
+TRAINER_DELAY=8
+
 echo "Waiting for the Proton session..."
-deadline=$((SECONDS + 120))
+deadline=$((SECONDS + SESSION_TIMEOUT))
 stable_seconds=0
 
 while (( SECONDS < deadline )); do
     if session_detected; then
         stable_seconds=$((stable_seconds + 1))
-        if (( stable_seconds >= 5 )); then
+        if (( stable_seconds >= SESSION_STABLE_SECONDS )); then
             break
         fi
     else
@@ -104,13 +113,13 @@ while (( SECONDS < deadline )); do
     sleep 1
 done
 
-if (( stable_seconds < 5 )); then
-    echo "The Proton session was not detected within 120 seconds." >&2
+if (( stable_seconds < SESSION_STABLE_SECONDS )); then
+    echo "The Proton session was not detected within $SESSION_TIMEOUT seconds." >&2
     exit 1
 fi
 
-echo "Proton session detected. Waiting 8 more seconds..."
-sleep 8
+echo "Proton session detected. Waiting $TRAINER_DELAY more seconds..."
+sleep "$TRAINER_DELAY"
 
 export STEAM_COMPAT_DATA_PATH="$COMPATDATA"
 export STEAM_COMPAT_CLIENT_INSTALL_PATH="$STEAM_ROOT"
