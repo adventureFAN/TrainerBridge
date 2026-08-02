@@ -13,8 +13,8 @@ from PySide6.QtWidgets import (
     QDialog,
     QHBoxLayout,
     QLabel,
-    QMessageBox,
     QPushButton,
+    QPlainTextEdit,
     QVBoxLayout
 )
 
@@ -178,7 +178,7 @@ class AboutDialog(QDialog):
         )
 
         beta_label = QLabel(
-            "Beta software — please report unexpected behavior."
+            "Beta software - please report unexpected behavior."
         )
 
         beta_label.setWordWrap(
@@ -298,22 +298,48 @@ class AboutDialog(QDialog):
                 f"{error}"
             )
 
-        message_box = QMessageBox(self)
+        dialog = QDialog(self)
 
-        message_box.setWindowTitle(
+        dialog.setWindowTitle(
             "Third-Party Notices"
         )
 
-        message_box.setIcon(
-            QMessageBox.Icon.Information
+        dialog.resize(
+            720,
+            560
         )
 
-        message_box.setText(
-            "TrainerBridge uses third-party software."
+        layout = QVBoxLayout(dialog)
+
+        notices_field = QPlainTextEdit()
+
+        notices_field.setReadOnly(
+            True
         )
 
-        message_box.setDetailedText(
+        notices_field.setPlainText(
             text
         )
 
-        message_box.exec()
+        close_button = QPushButton(
+            "Close"
+        )
+
+        close_button.clicked.connect(
+            dialog.accept
+        )
+
+        button_layout = QHBoxLayout()
+        button_layout.addStretch(1)
+        button_layout.addWidget(close_button)
+
+        layout.addWidget(
+            notices_field,
+            1
+        )
+
+        layout.addLayout(
+            button_layout
+        )
+
+        dialog.exec()

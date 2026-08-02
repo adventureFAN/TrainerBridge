@@ -1190,7 +1190,7 @@ class ComponentsDialog(QDialog):
         self.protontricks_label.setText(
             (
                 f"{self.manager.installation.display_name} "
-                f"— {catalog.version}"
+                f"- {catalog.version}"
             )
         )
 

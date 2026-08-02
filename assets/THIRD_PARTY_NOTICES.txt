@@ -1,6 +1,6 @@
-TrainerBridge - Third-Party Notices
+Third-Party Notices
 
-This beta build uses the following third-party software:
+This build uses the following third-party software:
 
 Python
 https://www.python.org/

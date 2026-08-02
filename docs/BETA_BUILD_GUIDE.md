@@ -26,10 +26,10 @@ The first build downloads the Ubuntu image, installs the pinned build dependenci
 The `release/` directory will contain:
 
 ```text
-TrainerBridge-0.9.0-beta.2-x86_64.AppImage
-TrainerBridge-0.9.0-beta.2-x86_64.AppImage.sha256
-TrainerBridge-0.9.0-beta.2-x86_64.tar.xz
-TrainerBridge-0.9.0-beta.2-x86_64.tar.xz.sha256
+TrainerBridge-0.99-beta.1-x86_64.AppImage
+TrainerBridge-0.99-beta.1-x86_64.AppImage.sha256
+TrainerBridge-0.99-beta.1-x86_64.tar.xz
+TrainerBridge-0.99-beta.1-x86_64.tar.xz.sha256
 ```
 
 The AppImage is the normal release. The `.tar.xz` archive is a FUSE-free fallback.
@@ -38,13 +38,13 @@ The AppImage is the normal release. The `.tar.xz` archive is a FUSE-free fallbac
 
 ```bash
 APPIMAGE_EXTRACT_AND_RUN=1 \
-./release/TrainerBridge-0.9.0-beta.2-x86_64.AppImage
+./release/TrainerBridge-0.99-beta.1-x86_64.AppImage
 ```
 
 ## Use the portable archive
 
 ```bash
-tar -xf release/TrainerBridge-0.9.0-beta.2-x86_64.tar.xz
+tar -xf release/TrainerBridge-0.99-beta.1-x86_64.tar.xz
 ./TrainerBridge/TrainerBridge
 ```
 

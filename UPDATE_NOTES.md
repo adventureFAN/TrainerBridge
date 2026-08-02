@@ -1,21 +1,14 @@
-# TrainerBridge launch cancellation and timeout fix
+# TrainerBridge 0.99 Beta 1
 
-This patch contains:
+Release polish for the first 0.99 beta build.
 
-- `main.py`
-- `core/exporter.py`
-- `core/process_monitor.py`
-- `core/session_manager.py`
+## Changes
 
-Changes:
-
-- Exported launch scripts no longer copy NUL-separated `/proc/*/cmdline`
-  data into Bash variables, preventing repeated NUL-byte warnings.
-- Exported scripts keep the working Steam launch-process detection.
-- Session detection timeout is consistently 60 seconds.
-- The main `Launch Game + Trainer` button changes to `Cancel Launch`
-  while TrainerBridge is waiting.
-- Cancelling stops only TrainerBridge's automatic launch sequence. It does
-  not terminate Steam or the game that was already launched.
-- Cancellation also works during the additional trainer delay.
-- The UI changes to `Cancelling...` after the user requests cancellation.
+- Bumped the application and release artifact version to 0.99 Beta 1.
+- Added an Other / Uncategorized fallback tab in Prefix Components.
+- Installed Protontricks verbs missing from the current catalog are preserved there instead of being hidden.
+- Unknown categories found in an existing catalog cache are mapped to the fallback tab.
+- Third-Party Notices now open directly in a scrollable window without a second Show Details step.
+- Simplified the notices heading and removed redundant TrainerBridge wording.
+- Replaced remaining long dash characters in visible application text with normal hyphens.
+- Updated AppImage desktop metadata and beta build documentation for 0.99 Beta 1.

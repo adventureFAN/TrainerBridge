@@ -10,4 +10,4 @@ Categories=Game;Utility;
 Keywords=Steam;Proton;Wine;Trainer;Game;
 StartupNotify=true
 StartupWMClass=TrainerBridge
-X-AppImage-Version=0.9.0-beta.1
+X-AppImage-Version=0.99-beta.1

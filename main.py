@@ -84,7 +84,7 @@ from core.version import (
 STATUS_NAMES = {
     "NATIVE": "No Proton prefix",
     "READY_WITH_TRAINER": "Ready with trainer",
-    "READY": "Ready — no trainer",
+    "READY": "Ready - no trainer",
     "PROTON_DETECTED": "Proton prefix not initialized",
     "UNKNOWN": "Scan issue"
 }
@@ -355,7 +355,7 @@ class MainWindow(QMainWindow):
         )
 
         self.status_filter.addItem(
-            "Ready — no trainer",
+            "Ready - no trainer",
             "READY"
         )
 
@@ -2031,7 +2031,7 @@ class MainWindow(QMainWindow):
         if game.status == "NATIVE":
 
             status_text += (
-                " — not supported by TrainerBridge"
+                " - not supported by TrainerBridge"
             )
 
         self.status_value.setText(
@@ -2631,7 +2631,7 @@ class MainWindow(QMainWindow):
             )
 
             self.statusBar().showMessage(
-                "Game is running — trainer can be launched"
+                "Game is running - trainer can be launched"
             )
 
         elif action == "trainer":
@@ -2881,7 +2881,7 @@ class MainWindow(QMainWindow):
                     if self._verified_game_is_running():
 
                         self.statusBar().showMessage(
-                            "Trainer exited — game is still running"
+                            "Trainer exited - game is still running"
                         )
 
                     else:

@@ -20,11 +20,20 @@ FLATPAK_APP_ID = (
 )
 
 
-SUPPORTED_CATEGORIES = {
+PROTONTRICKS_CATEGORIES = {
     "dlls": "DLLs & Runtimes",
     "fonts": "Fonts",
     "settings": "Settings",
     "apps": "Windows Applications"
+}
+
+
+FALLBACK_CATEGORY = "other"
+
+
+SUPPORTED_CATEGORIES = {
+    **PROTONTRICKS_CATEGORIES,
+    FALLBACK_CATEGORY: "Other / Uncategorized"
 }
 
 
@@ -695,10 +704,10 @@ class ProtontricksManager:
         category
     ):
 
-        if category not in SUPPORTED_CATEGORIES:
+        if category not in PROTONTRICKS_CATEGORIES:
 
             raise ValueError(
-                f"Unknown category: {category}"
+                f"Unknown Protontricks category: {category}"
             )
 
         output = self._run_capture(
@@ -1016,14 +1025,16 @@ class ProtontricksManager:
 
                 return None
 
+            category = str(category)
+
             if category not in SUPPORTED_CATEGORIES:
-                continue
+                category = FALLBACK_CATEGORY
 
             components.append(
                 ProtontricksComponent(
                     name=str(name),
                     description=str(description),
-                    category=str(category)
+                    category=category
                 )
             )
 
@@ -1122,7 +1133,7 @@ class ProtontricksManager:
 
         components = []
 
-        for category in SUPPORTED_CATEGORIES:
+        for category in PROTONTRICKS_CATEGORIES:
 
             components.extend(
                 self.list_category(
@@ -1181,8 +1192,13 @@ class ProtontricksManager:
             windows_version = None
 
         components = []
+        catalog_names = set()
 
         for component in catalog_components:
+
+            catalog_names.add(
+                component.name
+            )
 
             if component.name in WINDOWS_VERSION_VERBS:
 
@@ -1207,6 +1223,41 @@ class ProtontricksManager:
                     installed=installed
                 )
             )
+
+        unknown_installed = sorted(
+            installed_components - catalog_names
+        )
+
+        for component_name in unknown_installed:
+
+            components.append(
+                ProtontricksComponent(
+                    name=component_name,
+                    description=(
+                        "Installed component not present in the current "
+                        "Protontricks catalog."
+                    ),
+                    category=FALLBACK_CATEGORY,
+                    installed=True
+                )
+            )
+
+        category_order = {
+            category: index
+            for index, category in enumerate(
+                SUPPORTED_CATEGORIES
+            )
+        }
+
+        components.sort(
+            key=lambda component: (
+                category_order.get(
+                    component.category,
+                    len(category_order)
+                ),
+                component.name
+            )
+        )
 
         return ProtontricksCatalog(
             version=version,
