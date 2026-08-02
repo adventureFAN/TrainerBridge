@@ -1,5 +1,6 @@
 import logging
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -64,7 +65,10 @@ from core.preferences import (
 from core.process_monitor import ProcessMonitor
 from core.resources import resource_path
 from core.scanner import scan_all_games
-from core.session_manager import TrainerSessionManager
+from core.session_manager import (
+    LaunchCancelled,
+    TrainerSessionManager
+)
 from core.storage import (
     import_trainer as store_trainer,
     remove_trainer as remove_stored_trainer
@@ -110,6 +114,7 @@ class SessionWorker(QObject):
 
     finished = Signal(object)
     failed = Signal(str)
+    cancelled = Signal(str)
 
 
     def __init__(
@@ -122,6 +127,12 @@ class SessionWorker(QObject):
 
         self.game = game
         self.action = action
+        self.cancel_event = threading.Event()
+
+
+    def cancel(self):
+
+        self.cancel_event.set()
 
 
     @Slot()
@@ -135,21 +146,24 @@ class SessionWorker(QObject):
 
                 session = session_manager.start(
                     self.game,
-                    timeout=120,
-                    trainer_delay=8
+                    timeout=60,
+                    trainer_delay=8,
+                    cancel_event=self.cancel_event
                 )
 
             elif self.action == "game":
 
                 session = session_manager.launch_game(
                     self.game,
-                    timeout=120
+                    timeout=60,
+                    cancel_event=self.cancel_event
                 )
 
             elif self.action == "trainer":
 
                 session = session_manager.launch_trainer(
-                    self.game
+                    self.game,
+                    cancel_event=self.cancel_event
                 )
 
             else:
@@ -157,6 +171,14 @@ class SessionWorker(QObject):
                 raise ValueError(
                     f"Unknown launch action: {self.action}"
                 )
+
+        except LaunchCancelled as error:
+
+            self.cancelled.emit(
+                str(error)
+            )
+
+            return
 
         except Exception as error:
 
@@ -194,6 +216,8 @@ class MainWindow(QMainWindow):
 
         self.session_thread = None
         self.session_worker = None
+        self.session_action = None
+        self.session_cancel_requested = False
         self.active_session = None
 
         self.runtime_monitor = ProcessMonitor()
@@ -2105,6 +2129,71 @@ class MainWindow(QMainWindow):
             "export_script_action"
         ]
 
+        if self._session_is_starting():
+
+            cancel_text = (
+                "Cancelling..."
+                if self.session_cancel_requested
+                else "Cancel Launch"
+            )
+
+            self.start_button.setText(
+                cancel_text
+            )
+
+            self.start_button.setEnabled(
+                not self.session_cancel_requested
+            )
+
+            self.import_button.setEnabled(False)
+            self.components_button.setEnabled(False)
+            self.launch_game_button.setEnabled(False)
+            self.launch_trainer_button.setEnabled(False)
+
+            for action_name in selection_actions:
+
+                action = getattr(
+                    self,
+                    action_name,
+                    None
+                )
+
+                if action is not None:
+                    action.setEnabled(False)
+
+            launch_combined_action = getattr(
+                self,
+                "launch_combined_action",
+                None
+            )
+
+            if launch_combined_action is not None:
+
+                launch_combined_action.setText(
+                    cancel_text
+                )
+
+                launch_combined_action.setEnabled(
+                    not self.session_cancel_requested
+                )
+
+            return
+
+        self.start_button.setText(
+            "Launch Game + Trainer"
+        )
+
+        launch_combined_action = getattr(
+            self,
+            "launch_combined_action",
+            None
+        )
+
+        if launch_combined_action is not None:
+            launch_combined_action.setText(
+                "Launch Game + Trainer"
+            )
+
         if not game:
 
             self.import_button.setText("Import Trainer")
@@ -2126,17 +2215,12 @@ class MainWindow(QMainWindow):
             return
 
         is_proton_game = game.status != "NATIVE"
-        action_is_running = self._session_is_starting()
         trainer_is_running = self._trainer_is_running()
         verified_game_is_running = self._verified_game_is_running(
             game
         )
 
-        session_is_busy = (
-            action_is_running
-            or
-            trainer_is_running
-        )
+        session_is_busy = trainer_is_running
 
         trainer_exists = (
             game.trainer_path is not None
@@ -2366,6 +2450,11 @@ class MainWindow(QMainWindow):
 
     def start_selected_game(self):
 
+        if self._session_is_starting():
+
+            self._cancel_active_launch()
+            return
+
         self._start_launch_action(
             "combined"
         )
@@ -2415,6 +2504,9 @@ class MainWindow(QMainWindow):
             f"Starting {action_label} for {game.name}..."
         )
 
+        self.session_action = action
+        self.session_cancel_requested = False
+
         self.session_thread = QThread(self)
         self.session_worker = SessionWorker(
             game,
@@ -2437,11 +2529,19 @@ class MainWindow(QMainWindow):
             self._session_failed
         )
 
+        self.session_worker.cancelled.connect(
+            self._session_cancelled
+        )
+
         self.session_worker.finished.connect(
             self.session_thread.quit
         )
 
         self.session_worker.failed.connect(
+            self.session_thread.quit
+        )
+
+        self.session_worker.cancelled.connect(
             self.session_thread.quit
         )
 
@@ -2450,6 +2550,10 @@ class MainWindow(QMainWindow):
         )
 
         self.session_worker.failed.connect(
+            self.session_worker.deleteLater
+        )
+
+        self.session_worker.cancelled.connect(
             self.session_worker.deleteLater
         )
 
@@ -2460,6 +2564,31 @@ class MainWindow(QMainWindow):
         self._update_action_buttons()
 
         self.session_thread.start()
+
+
+    def _cancel_active_launch(self):
+
+        if not self._session_is_starting():
+            return
+
+        if self.session_cancel_requested:
+            return
+
+        self.session_cancel_requested = True
+
+        self._append_log(
+            "Cancelling the automatic launch sequence. "
+            "The game will not be stopped."
+        )
+
+        self.statusBar().showMessage(
+            "Cancelling launch..."
+        )
+
+        if self.session_worker is not None:
+            self.session_worker.cancel()
+
+        self._update_action_buttons()
 
 
     @Slot(object)
@@ -2533,10 +2662,41 @@ class MainWindow(QMainWindow):
 
 
     @Slot(str)
+    def _session_cancelled(
+        self,
+        message
+    ):
+
+        self.active_session = None
+
+        cancel_message = (
+            message
+            or
+            "Launch cancelled. The game was left running."
+        )
+
+        self._append_log(
+            cancel_message
+        )
+
+        self.statusBar().showMessage(
+            "Launch cancelled - game left running"
+        )
+
+
+    @Slot(str)
     def _session_failed(
         self,
         message
     ):
+
+        if self.session_cancel_requested:
+
+            self._session_cancelled(
+                "Launch cancelled. The game was left running."
+            )
+
+            return
 
         self.active_session = None
 
@@ -2562,6 +2722,8 @@ class MainWindow(QMainWindow):
 
         self.session_thread = None
         self.session_worker = None
+        self.session_action = None
+        self.session_cancel_requested = False
 
         if thread:
             thread.deleteLater()

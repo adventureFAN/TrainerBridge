@@ -4,6 +4,11 @@ from pathlib import Path
 from core.steam import get_steam_info
 
 
+SESSION_TIMEOUT_SECONDS = 60
+SESSION_STABLE_SECONDS = 5
+TRAINER_DELAY_SECONDS = 8
+
+
 def _shell_join(parts):
     return " ".join(shlex.quote(str(part)) for part in parts)
 
@@ -69,17 +74,20 @@ TRAINER={values["trainer"]}
 
 session_detected() {{
     local cmdline_file
-    local cmdline
 
     for cmdline_file in /proc/[0-9]*/cmdline; do
         [[ -r "$cmdline_file" ]] || continue
 
-        cmdline="$(tr '\0' ' ' < "$cmdline_file" 2>/dev/null || true)"
+        grep -azFq "SteamLaunch" "$cmdline_file" 2>/dev/null || continue
+        grep -azFxq "AppId=$APPID" "$cmdline_file" 2>/dev/null || continue
 
-        [[ "$cmdline" == *"SteamLaunch"* ]] || continue
-        [[ "$cmdline" == *"AppId=$APPID"* ]] || continue
-        [[ "${{cmdline,,}}" != *"iscriptevaluator.exe"* ]] || continue
-        [[ " $cmdline " != *" Install=1 "* ]] || continue
+        if grep -aziFq "iscriptevaluator.exe" "$cmdline_file" 2>/dev/null; then
+            continue
+        fi
+
+        if grep -azFxq "Install=1" "$cmdline_file" 2>/dev/null; then
+            continue
+        fi
 
         return 0
     done
@@ -92,9 +100,9 @@ if ! session_detected; then
     {values["launch"]} >/dev/null 2>&1 &
 fi
 
-SESSION_TIMEOUT=60
-SESSION_STABLE_SECONDS=5
-TRAINER_DELAY=8
+SESSION_TIMEOUT={SESSION_TIMEOUT_SECONDS}
+SESSION_STABLE_SECONDS={SESSION_STABLE_SECONDS}
+TRAINER_DELAY={TRAINER_DELAY_SECONDS}
 
 echo "Waiting for the Proton session..."
 deadline=$((SECONDS + SESSION_TIMEOUT))

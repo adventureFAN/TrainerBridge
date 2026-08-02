@@ -562,9 +562,10 @@ class ProcessMonitor:
     def wait_for_game(
         self,
         appid,
-        timeout=120,
+        timeout=60,
         interval=0.5,
-        stable_seconds=5
+        stable_seconds=5,
+        cancel_event=None
     ):
 
         start_time = time.monotonic()
@@ -578,6 +579,14 @@ class ProcessMonitor:
             < timeout
         ):
 
+            if (
+                cancel_event is not None
+                and
+                cancel_event.is_set()
+            ):
+
+                return None
+
             runtime = self.get_runtime(
                 appid
             )
@@ -588,9 +597,15 @@ class ProcessMonitor:
                 stable_pid = None
                 stable_since = None
 
-                time.sleep(
-                    interval
-                )
+                if cancel_event is None:
+
+                    time.sleep(
+                        interval
+                    )
+
+                elif cancel_event.wait(interval):
+
+                    return None
 
                 continue
 
@@ -611,9 +626,15 @@ class ProcessMonitor:
                 return runtime
 
 
-            time.sleep(
-                interval
-            )
+            if cancel_event is None:
+
+                time.sleep(
+                    interval
+                )
+
+            elif cancel_event.wait(interval):
+
+                return None
 
 
         return None
