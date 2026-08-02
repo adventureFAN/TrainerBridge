@@ -172,19 +172,19 @@ class AboutDialog(QDialog):
             Qt.AlignmentFlag.AlignCenter
         )
 
-        beta_label = QLabel(
-            "Release candidate - please report unexpected behavior."
+        license_label = QLabel(
+            "Open source software released under the MIT License."
         )
 
-        beta_label.setWordWrap(
+        license_label.setWordWrap(
             True
         )
 
-        beta_label.setAlignment(
+        license_label.setAlignment(
             Qt.AlignmentFlag.AlignCenter
         )
 
-        beta_label.setStyleSheet(
+        license_label.setStyleSheet(
             "font-style: italic; color: gray;"
         )
 
@@ -200,7 +200,7 @@ class AboutDialog(QDialog):
         layout.addWidget(title_label)
         layout.addWidget(version_label)
         layout.addWidget(description_label)
-        layout.addWidget(beta_label)
+        layout.addWidget(license_label)
         layout.addWidget(author_label)
 
         button_layout = QHBoxLayout()

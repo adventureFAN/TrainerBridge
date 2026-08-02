@@ -1,30 +1,40 @@
 Third-Party Notices
 
-This build uses the following third-party software:
+TrainerBridge is released under the MIT License. See the LICENSE file.
 
-Python
+Release builds include or use the following third-party software. Each
+component remains subject to its own license terms. License and copyright
+files supplied by installed Python distributions are collected into the
+release package under the licenses/ directory.
+
+Python 3.10
 https://www.python.org/
 Python Software Foundation License
 
-PySide6 / Qt for Python
+PySide6 6.11.1 / Qt for Python / Qt
 https://doc.qt.io/qtforpython-6/
-GNU Lesser General Public License v3 and applicable Qt third-party licenses
+LGPLv3, GPLv3, Qt commercial licenses, and applicable Qt third-party licenses
 
-vdf
+shiboken6 / PySide6 Essentials / PySide6 Addons
+https://doc.qt.io/qtforpython-6/
+Applicable Qt for Python and Qt licenses
+
+vdf 3.4
 https://github.com/ValvePython/vdf
 MIT License
 
-zstandard
+zstandard 0.25.0
 https://pypi.org/project/zstandard/
 BSD License
 
-PyInstaller (build-time tooling)
+PyInstaller 6.21.0
 https://pyinstaller.org/
 GPL with the PyInstaller bootloader exception
 
-AppImageKit appimagetool (build-time tooling)
+AppImageKit appimagetool
 https://github.com/AppImage/AppImageKit
 MIT License
+Build-time tooling; appimagetool is not bundled in TrainerBridge.
 
-This file is an informational beta notice. Full license texts and a final
-project license must be included before a public production release.
+Steam, Proton, Wine, Protontricks, Winetricks, and trainer software are not
+part of TrainerBridge and are not distributed by this project.

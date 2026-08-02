@@ -1,0 +1,109 @@
+name: Bug report
+description: Report a reproducible TrainerBridge problem
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. Do not upload trainer executables, game files, saves, or complete Proton prefixes.
+  - type: input
+    id: version
+    attributes:
+      label: TrainerBridge version
+      placeholder: "1.0.0 AppImage"
+    validations:
+      required: true
+  - type: input
+    id: distribution
+    attributes:
+      label: Linux distribution and version
+      placeholder: "Linux Mint 22.x"
+    validations:
+      required: true
+  - type: input
+    id: desktop
+    attributes:
+      label: Desktop environment and display protocol
+      placeholder: "Cinnamon on X11, GNOME on Wayland, KDE Plasma on Wayland"
+    validations:
+      required: true
+  - type: dropdown
+    id: steam_package
+    attributes:
+      label: Steam package type
+      options:
+        - Native distribution package
+        - Snap
+        - Flatpak
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: proton
+    attributes:
+      label: Proton version
+      placeholder: "GE-Proton11-3, Proton 11, Proton Experimental"
+    validations:
+      required: true
+  - type: input
+    id: protontricks
+    attributes:
+      label: Protontricks package and version
+      description: Required for Prefix Components reports; otherwise enter Not applicable.
+      placeholder: "Flatpak protontricks 20260125"
+    validations:
+      required: true
+  - type: input
+    id: game
+    attributes:
+      label: Game name and Steam AppID
+      placeholder: "FINAL FANTASY, 1173770"
+    validations:
+      required: true
+  - type: input
+    id: filesystem
+    attributes:
+      label: Steam library filesystem and mount path
+      placeholder: "Btrfs in home, ext4 under /mnt/games, NTFS external drive"
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Select the game
+        2. Click Launch Game + Trainer
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant log output
+      description: Paste text only and remove personal information. Logs are under ~/.local/share/TrainerBridge/logs/.
+      render: text
+  - type: checkboxes
+    id: confirmations
+    attributes:
+      label: Confirmation
+      options:
+        - label: I tested the latest available TrainerBridge release.
+          required: true
+        - label: I did not attach a trainer executable, game file, save file, or complete prefix.
+          required: true
+        - label: I removed personal or sensitive information from the log.
+          required: true

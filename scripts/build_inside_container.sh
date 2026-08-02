@@ -16,6 +16,7 @@ BUILD_DIR="$PROJECT_ROOT/build"
 DIST_DIR="$PROJECT_ROOT/dist"
 APPDIR="$PROJECT_ROOT/${APP_NAME}.AppDir"
 PORTABLE_STAGE="$PROJECT_ROOT/.portable-stage"
+LICENSE_STAGE="$PROJECT_ROOT/.license-stage"
 RELEASE_DIR="$PROJECT_ROOT/release"
 TOOLS_DIR="$PROJECT_ROOT/tools"
 
@@ -39,6 +40,10 @@ required_files=(
     "$PROJECT_ROOT/packaging/TrainerBridge.spec"
     "$PROJECT_ROOT/packaging/trainerbridge.desktop"
     "$PROJECT_ROOT/packaging/AppRun"
+    "$PROJECT_ROOT/LICENSE"
+    "$PROJECT_ROOT/README.md"
+    "$PROJECT_ROOT/CHANGELOG.md"
+    "$PROJECT_ROOT/scripts/collect_licenses.py"
 )
 
 for required_file in "${required_files[@]}"; do
@@ -58,7 +63,8 @@ rm -rf \
     "$BUILD_DIR" \
     "$DIST_DIR" \
     "$APPDIR" \
-    "$PORTABLE_STAGE"
+    "$PORTABLE_STAGE" \
+    "$LICENSE_STAGE"
 
 rm -f \
     "$APPIMAGE_OUTPUT" \
@@ -84,6 +90,9 @@ echo "Running frozen application self-test..."
 QT_QPA_PLATFORM=offscreen \
 "$FROZEN_EXECUTABLE" --self-test
 
+echo "Collecting third-party license files..."
+python3 "$PROJECT_ROOT/scripts/collect_licenses.py" "$LICENSE_STAGE"
+
 echo "Creating AppDir..."
 mkdir -p \
     "$APPDIR/usr/bin" \
@@ -105,7 +114,11 @@ cp "$PROJECT_ROOT/assets/trainerbridge-64.png" "$APPDIR/usr/share/icons/hicolor/
 cp "$PROJECT_ROOT/assets/trainerbridge-128.png" "$APPDIR/usr/share/icons/hicolor/128x128/apps/trainerbridge.png"
 cp "$PROJECT_ROOT/assets/trainerbridge-256.png" "$APPDIR/usr/share/icons/hicolor/256x256/apps/trainerbridge.png"
 cp "$PROJECT_ROOT/assets/trainerbridge.png" "$APPDIR/usr/share/icons/hicolor/512x512/apps/trainerbridge.png"
+cp "$PROJECT_ROOT/LICENSE" "$APPDIR/usr/share/doc/trainerbridge/LICENSE"
+cp "$PROJECT_ROOT/README.md" "$APPDIR/usr/share/doc/trainerbridge/README.md"
+cp "$PROJECT_ROOT/CHANGELOG.md" "$APPDIR/usr/share/doc/trainerbridge/CHANGELOG.md"
 cp "$PROJECT_ROOT/assets/THIRD_PARTY_NOTICES.txt" "$APPDIR/usr/share/doc/trainerbridge/THIRD_PARTY_NOTICES.txt"
+cp -a "$LICENSE_STAGE" "$APPDIR/usr/share/doc/trainerbridge/licenses"
 
 chmod +x "$APPDIR/AppRun" "$APPDIR/usr/bin/TrainerBridge"
 ln -sfn trainerbridge.png "$APPDIR/.DirIcon"
@@ -166,7 +179,11 @@ APPIMAGE_EXTRACT_AND_RUN=1 \
 echo "Creating portable tar.xz fallback..."
 mkdir -p "$PORTABLE_STAGE/$APP_NAME"
 cp -a "$DIST_DIR/TrainerBridge/." "$PORTABLE_STAGE/$APP_NAME/"
+cp "$PROJECT_ROOT/LICENSE" "$PORTABLE_STAGE/$APP_NAME/LICENSE"
+cp "$PROJECT_ROOT/README.md" "$PORTABLE_STAGE/$APP_NAME/README.md"
+cp "$PROJECT_ROOT/CHANGELOG.md" "$PORTABLE_STAGE/$APP_NAME/CHANGELOG.md"
 cp "$PROJECT_ROOT/assets/THIRD_PARTY_NOTICES.txt" "$PORTABLE_STAGE/$APP_NAME/THIRD_PARTY_NOTICES.txt"
+cp -a "$LICENSE_STAGE" "$PORTABLE_STAGE/$APP_NAME/licenses"
 
 tar \
     --create \
@@ -181,7 +198,7 @@ tar \
     sha256sum "$ARCHIVE_NAME" > "$ARCHIVE_NAME.sha256"
 )
 
-rm -rf "$PORTABLE_STAGE"
+rm -rf "$PORTABLE_STAGE" "$LICENSE_STAGE"
 
 echo
 echo "Build complete:"

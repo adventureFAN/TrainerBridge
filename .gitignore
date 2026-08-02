@@ -31,3 +31,5 @@ launcher-diagnosis-*.txt
 *~
 .portable-stage/
 tools/
+
+.license-stage/

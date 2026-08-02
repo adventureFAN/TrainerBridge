@@ -15,7 +15,7 @@ echo
 echo "This will:"
 echo "  - remove generated AppDir/build folders"
 echo "  - remove obsolete prototypes and one-off test scripts"
-echo "  - move the beta documents into docs/"
+echo "  - keep release documentation under docs/"
 echo "  - keep the application source, assets, packaging and build script"
 echo
 echo "The removed files remain recoverable through Git history."
