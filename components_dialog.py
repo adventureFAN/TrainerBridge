@@ -292,6 +292,9 @@ class ComponentsDialog(QDialog):
         self.backup_thread = None
         self.backup_worker = None
         self.backup_action = None
+        self.backup_result = None
+        self.backup_error = None
+        self._backup_completion_pending = None
         self.pending_install_components = None
         self.refresh_after_backup_delete = False
         self.prefix_restored = False
@@ -1029,6 +1032,8 @@ class ComponentsDialog(QDialog):
             self.install_thread is not None
             or
             self.backup_thread is not None
+            or
+            self._backup_completion_pending is not None
         )
 
 
@@ -2059,23 +2064,29 @@ class ComponentsDialog(QDialog):
         if self.backup_manager.load_info() is None:
             return True
 
-        answer = QMessageBox.warning(
-            self,
-            "Replace existing safety backup",
-            (
-                "A safety backup already exists for this game.\n\n"
-                "Creating a new backup will replace the existing one only "
-                "after the new backup has been completed successfully."
-            ),
-            (
-                QMessageBox.StandardButton.Yes
-                |
-                QMessageBox.StandardButton.Cancel
-            ),
-            QMessageBox.StandardButton.Cancel
+        dialog = QMessageBox(self)
+        dialog.setIcon(QMessageBox.Icon.Warning)
+        dialog.setWindowTitle("Replace Existing Safety Backup")
+        dialog.setText(
+            "A safety backup already exists for this game.\n\n"
+            "Only replace it after you have successfully tested the current "
+            "game and trainer configuration. Replacing it will permanently "
+            "remove the previous recovery point.\n\n"
+            "The existing backup will only be replaced after the new backup "
+            "has been created and verified successfully."
         )
 
-        return answer == QMessageBox.StandardButton.Yes
+        replace_button = dialog.addButton(
+            "Replace Backup",
+            QMessageBox.ButtonRole.AcceptRole
+        )
+        cancel_button = dialog.addButton(
+            QMessageBox.StandardButton.Cancel
+        )
+        dialog.setDefaultButton(cancel_button)
+        dialog.exec()
+
+        return dialog.clickedButton() is replace_button
 
 
     def _prepare_backup_for_installation(
@@ -2289,16 +2300,65 @@ class ComponentsDialog(QDialog):
     def _backup_thread_finished(self):
 
         thread = self.backup_thread
-        action = self.backup_action
-        result = self.backup_result
-        error = self.backup_error
+
+        self._backup_completion_pending = (
+            self.backup_action,
+            self.backup_result,
+            self.backup_error
+        )
 
         self.backup_thread = None
         self.backup_worker = None
         self.backup_action = None
+        self.backup_result = None
+        self.backup_error = None
 
-        if thread:
-            thread.deleteLater()
+        # A restore can be followed immediately by a delete operation.
+        # Wait until the previous QThread object has actually been destroyed
+        # before showing the completion prompt or starting another worker.
+        # Starting a second backup worker from the finished handler while the
+        # first QThread is still pending delete can trigger a native Qt/PySide
+        # shutdown without a Python traceback.
+        if thread is None:
+            QTimer.singleShot(
+                0,
+                self._backup_thread_cleanup_finished
+            )
+            return
+
+        thread.destroyed.connect(
+            self._backup_thread_cleanup_finished
+        )
+        thread.deleteLater()
+
+
+    @Slot(object)
+    def _backup_thread_cleanup_finished(
+        self,
+        _destroyed_thread=None
+    ):
+
+        completion = self._backup_completion_pending
+        self._backup_completion_pending = None
+
+        if completion is None:
+            return
+
+        action, result, error = completion
+
+        self._handle_backup_completion(
+            action,
+            result,
+            error
+        )
+
+
+    def _handle_backup_completion(
+        self,
+        action,
+        result,
+        error
+    ):
 
         self._set_busy(False)
         self._refresh_backup_status()

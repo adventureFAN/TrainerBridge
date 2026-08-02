@@ -1,14 +1,6 @@
-# TrainerBridge 0.99 Beta 1
+# Restore/Delete lifecycle fix
 
-Release polish for the first 0.99 beta build.
-
-## Changes
-
-- Bumped the application and release artifact version to 0.99 Beta 1.
-- Added an Other / Uncategorized fallback tab in Prefix Components.
-- Installed Protontricks verbs missing from the current catalog are preserved there instead of being hidden.
-- Unknown categories found in an existing catalog cache are mapped to the fallback tab.
-- Third-Party Notices now open directly in a scrollable window without a second Show Details step.
-- Simplified the notices heading and removed redundant TrainerBridge wording.
-- Replaced remaining long dash characters in visible application text with normal hyphens.
-- Updated AppImage desktop metadata and beta build documentation for 0.99 Beta 1.
+- Waits for the completed backup QThread object to be fully destroyed before processing the result.
+- Prevents an immediate Restore -> Delete Backup chain from starting a second worker while the previous Qt thread is still pending deletion.
+- Keeps the Prefix Components dialog busy during the short cleanup phase.
+- Based on the TrainerBridge 0.99 Beta 1 polish source state.
