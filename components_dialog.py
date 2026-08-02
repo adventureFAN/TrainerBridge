@@ -3,7 +3,6 @@ from datetime import datetime
 
 from PySide6.QtCore import (
     QObject,
-    QSettings,
     QThread,
     QTimer,
     Qt,
@@ -43,6 +42,7 @@ from core.preferences import (
     BACKUP_POLICY_ASK,
     BACKUP_POLICY_KEY,
     BACKUP_POLICY_NEVER,
+    application_settings,
     remember_window_geometry
 )
 from core.protontricks import (
@@ -266,10 +266,7 @@ class ComponentsDialog(QDialog):
 
         super().__init__(parent)
 
-        self.settings = QSettings(
-            APP_NAME,
-            APP_NAME
-        )
+        self.settings = application_settings()
 
         self.game = game
         self.manager = ProtontricksManager.detect()
@@ -1902,11 +1899,21 @@ class ComponentsDialog(QDialog):
         except (TypeError, ValueError):
             pass
 
+        if info.method == "reflink":
+            size_text = (
+                f"{BackupManager.format_size(info.source_size)} logical size; "
+                "file data is initially shared with the original prefix"
+            )
+        else:
+            size_text = (
+                f"{BackupManager.format_size(info.stored_size)} stored "
+                f"({BackupManager.format_size(info.source_size)} original)"
+            )
+
         self.backup_status_label.setText(
             f"Backup from {created_text} - "
             f"{method_labels.get(info.method, info.method)} - "
-            f"{BackupManager.format_size(info.stored_size)} stored "
-            f"({BackupManager.format_size(info.source_size)} original)"
+            f"{size_text}"
         )
 
         self.backup_status_label.setToolTip(
@@ -2062,23 +2069,33 @@ class ComponentsDialog(QDialog):
     def _confirm_backup_replacement(self):
 
         if self.backup_manager.load_info() is None:
-            return True
+            return "replace"
 
         dialog = QMessageBox(self)
         dialog.setIcon(QMessageBox.Icon.Warning)
-        dialog.setWindowTitle("Replace Existing Safety Backup")
+        dialog.setWindowTitle("Existing Safety Backup")
         dialog.setText(
-            "A safety backup already exists for this game.\n\n"
+            "A safety backup already exists for this game."
+        )
+        dialog.setInformativeText(
             "Only replace it after you have successfully tested the current "
-            "game and trainer configuration. Replacing it will permanently "
-            "remove the previous recovery point.\n\n"
+            "game and trainer configuration. Replacing it permanently removes "
+            "the previous recovery point, including any local save files and "
+            "prefix data that exist only in that backup.\n\n"
             "The existing backup will only be replaced after the new backup "
-            "has been created and verified successfully."
+            "has been created and verified successfully.\n\n"
+            "Keep Existing Backup & Continue installs the selected components "
+            "without creating a new backup and leaves the current recovery "
+            "point untouched."
         )
 
         replace_button = dialog.addButton(
             "Replace Backup",
             QMessageBox.ButtonRole.AcceptRole
+        )
+        keep_button = dialog.addButton(
+            "Keep Existing Backup && Continue",
+            QMessageBox.ButtonRole.ActionRole
         )
         cancel_button = dialog.addButton(
             QMessageBox.StandardButton.Cancel
@@ -2086,7 +2103,15 @@ class ComponentsDialog(QDialog):
         dialog.setDefaultButton(cancel_button)
         dialog.exec()
 
-        return dialog.clickedButton() is replace_button
+        clicked_button = dialog.clickedButton()
+
+        if clicked_button is replace_button:
+            return "replace"
+
+        if clicked_button is keep_button:
+            return "keep"
+
+        return "cancel"
 
 
     def _prepare_backup_for_installation(
@@ -2094,7 +2119,13 @@ class ComponentsDialog(QDialog):
         component_names
     ):
 
-        if not self._confirm_backup_replacement():
+        backup_choice = self._confirm_backup_replacement()
+
+        if backup_choice == "cancel":
+            return
+
+        if backup_choice == "keep":
+            self._start_installation(component_names)
             return
 
         try:
@@ -2470,9 +2501,11 @@ class ComponentsDialog(QDialog):
                 "successfully."
             )
             message_box.setInformativeText(
-                "The safety backup is no longer required for this restore. "
-                "Delete it now? Keeping it allows you to restore the same "
-                "state again later."
+                "Delete the safety backup now? This cannot be undone. Any "
+                "prefix data that exists only in the backup can be lost "
+                "permanently, including local save files, settings, registry "
+                "data, installed runtimes, and DLL overrides.\n\n"
+                "Keeping it allows you to restore the same state again later."
             )
 
             delete_button = message_box.addButton(
@@ -2567,7 +2600,12 @@ class ComponentsDialog(QDialog):
             (
                 f"Permanently delete the safety backup for "
                 f"{self.game.name}?\n\n"
-                "This cannot be undone."
+                "This cannot be undone. Data that exists only in the backup "
+                "may be lost permanently, including local save files, game "
+                "settings, registry data, installed runtimes, DLL overrides, "
+                "and other files stored inside compatdata.\n\n"
+                "Only delete the backup after you have successfully tested "
+                "the current game and trainer configuration."
             ),
             (
                 QMessageBox.StandardButton.Yes
@@ -2759,11 +2797,23 @@ class ComponentsDialog(QDialog):
             "Installation failed."
         )
 
-        QMessageBox.critical(
-            self,
-            "Installation failed",
-            message
+        message_box = QMessageBox(self)
+        message_box.setIcon(QMessageBox.Icon.Critical)
+        message_box.setWindowTitle("Installation failed")
+        message_box.setText(
+            "The selected component installation did not complete successfully."
         )
+        message_box.setInformativeText(
+            "Compatibility can depend on the selected Proton version. "
+            "TrainerBridge has successfully tested component installations "
+            "with GE-Proton. Consider switching the game to GE-Proton, "
+            "launching it once, and trying again.\n\n"
+            "GE-Proton is a recommendation and does not guarantee that every "
+            "component will install successfully. The complete error output "
+            "is shown in the Prefix Components window."
+        )
+        message_box.addButton(QMessageBox.StandardButton.Close)
+        message_box.exec()
 
 
     @Slot()

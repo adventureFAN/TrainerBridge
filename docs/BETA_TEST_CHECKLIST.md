@@ -1,4 +1,4 @@
-# TrainerBridge Beta Test Checklist
+# TrainerBridge 1.0 RC1 Test Checklist
 
 ## Package startup
 
@@ -6,7 +6,9 @@
 - [ ] AppImage starts with `APPIMAGE_EXTRACT_AND_RUN=1`
 - [ ] Portable `.tar.xz` version starts
 - [ ] Icon and About dialog are displayed correctly
-- [ ] Main, About and Prefix Components window positions are restored
+- [ ] System, Light and Dark themes persist after restart
+- [ ] Open Data, Trainers, Trainer, Game, Prefix, Backup and Log Folder work
+- [ ] Main, Options, About and Prefix Components window sizes/positions are restored where supported by the window manager
 
 ## Main window
 
@@ -18,6 +20,9 @@
 ## Game and trainer launch
 
 - [ ] Launch Game + Trainer works
+- [ ] Steam Flatpak permission prompt grants read-only trainer access
+- [ ] Steam Flatpak detects the running AppID session and launches the trainer
+- [ ] Exported Steam Flatpak launch script detects the session and launches the trainer
 - [ ] Launch Game enables Launch Trainer after verification
 - [ ] Launch Trainer works for an already verified game
 - [ ] Trainer exits normally with code 0
@@ -28,6 +33,8 @@
 ## Prefix Components
 
 - [ ] Native or Flatpak Protontricks is detected
+- [ ] Existing backup can be kept while installing more components
+- [ ] Replace and Delete Backup warnings mention local saves and irreversible loss
 - [ ] Component catalog loads
 - [ ] Installed components are shown correctly
 - [ ] Multiple components can be installed

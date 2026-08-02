@@ -1,5 +1,4 @@
-from PySide6.QtCore import QSettings, Qt, QUrl
-from PySide6.QtGui import QDesktopServices
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -16,6 +15,7 @@ from PySide6.QtWidgets import (
     QWidget
 )
 
+from core.desktop import open_local_path
 from core.paths import BACKUP_DIR, DATA_DIR, TRAINER_DIR
 from core.preferences import (
     BACKUP_METHOD_AUTO,
@@ -33,6 +33,7 @@ from core.preferences import (
     THEME_KEY,
     THEME_LIGHT,
     THEME_SYSTEM,
+    application_settings,
     apply_theme,
     remember_window_geometry
 )
@@ -46,7 +47,7 @@ class OptionsDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
 
-        self.settings = QSettings(APP_NAME, APP_NAME)
+        self.settings = application_settings()
         self.setWindowTitle(f"Options - {APP_NAME}")
         self.resize(620, 460)
         self.setMinimumSize(560, 420)
@@ -117,8 +118,8 @@ class OptionsDialog(QDialog):
         storage_layout.addRow("Trainer folder:", trainer_path)
 
         note = QLabel(
-            "Storage paths are fixed for version 1.0 to keep migration and "
-            "recovery predictable."
+            "Storage locations are currently fixed. Changing the TrainerBridge "
+            "data, trainer, and backup locations is not supported."
         )
         note.setWordWrap(True)
         storage_layout.addRow("", note)
@@ -310,7 +311,13 @@ class OptionsDialog(QDialog):
 
     def _open_backup_folder(self):
         BACKUP_DIR.mkdir(parents=True, exist_ok=True)
-        QDesktopServices.openUrl(QUrl.fromLocalFile(str(BACKUP_DIR)))
+
+        if not open_local_path(BACKUP_DIR):
+            QMessageBox.warning(
+                self,
+                "Folder could not be opened",
+                f"TrainerBridge could not open:\n{BACKUP_DIR}"
+            )
 
     def _restore_geometry(self):
         if not remember_window_geometry(self.settings):

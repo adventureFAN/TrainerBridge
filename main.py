@@ -6,18 +6,15 @@ from pathlib import Path
 
 from PySide6.QtCore import (
     QObject,
-    QSettings,
     QThread,
     QTimer,
     Qt,
-    QUrl,
     Signal,
     Slot
 )
 
 from PySide6.QtGui import (
     QAction,
-    QDesktopServices,
     QIcon,
     QKeySequence
 )
@@ -53,12 +50,21 @@ from about_dialog import AboutDialog
 from components_dialog import ComponentsDialog
 from options_dialog import OptionsDialog
 
+from core.desktop import open_local_path
 from core.exporter import build_launch_script
+from core.flatpak_steam import (
+    grant_steam_flatpak_read_access,
+    restart_steam_flatpak,
+    running_steam_flatpak_can_read,
+    steam_flatpak_can_read,
+    steam_flatpak_has_running_game
+)
 from core.logging_setup import setup_logging
 from core.paths import DATA_DIR, TRAINER_DIR
 from core.preferences import (
     HIDE_EARLY_TRAINER_EXIT_KEY,
     HIDE_TRAINER_REQUIREMENTS_KEY,
+    application_settings,
     apply_theme,
     remember_window_geometry
 )
@@ -147,7 +153,7 @@ class SessionWorker(QObject):
                 session = session_manager.start(
                     self.game,
                     timeout=60,
-                    trainer_delay=8,
+                    trainer_delay=4,
                     cancel_event=self.cancel_event
                 )
 
@@ -200,10 +206,7 @@ class MainWindow(QMainWindow):
 
         super().__init__()
 
-        self.settings = QSettings(
-            APP_NAME,
-            APP_NAME
-        )
+        self.settings = application_settings()
 
         self.logger = logging.getLogger(
             APP_NAME
@@ -220,7 +223,9 @@ class MainWindow(QMainWindow):
         self.session_cancel_requested = False
         self.active_session = None
 
-        self.runtime_monitor = ProcessMonitor()
+        self.runtime_monitor = ProcessMonitor(
+            steam_kind=get_steam_info().get("kind")
+        )
         self.verified_game_runtime = None
         self.verified_game_appid = None
 
@@ -1126,10 +1131,8 @@ class MainWindow(QMainWindow):
 
             return
 
-        opened = QDesktopServices.openUrl(
-            QUrl.fromLocalFile(
-                str(folder)
-            )
+        opened = open_local_path(
+            folder
         )
 
         if not opened:
@@ -2460,6 +2463,133 @@ class MainWindow(QMainWindow):
         )
 
 
+    def _ensure_flatpak_trainer_access(
+        self,
+        game,
+        action
+    ):
+
+        if action not in {"combined", "trainer"}:
+            return True
+
+        steam_info = get_steam_info()
+
+        if steam_info.get("kind") != "flatpak":
+            return True
+
+        permission_configured = steam_flatpak_can_read(
+            TRAINER_DIR
+        )
+        permission_active = (
+            permission_configured
+            and
+            running_steam_flatpak_can_read(TRAINER_DIR)
+        )
+
+        if permission_active:
+            return True
+
+        if steam_flatpak_has_running_game():
+
+            QMessageBox.warning(
+                self,
+                "Steam Flatpak permission required",
+                (
+                    "Steam Flatpak needs read-only access to the "
+                    "TrainerBridge trainer folder. Steam must be restarted "
+                    "after this permission is added.\n\n"
+                    "Close all running Steam games and Steam itself, then "
+                    "start the launch again so TrainerBridge can grant or "
+                    "activate the access safely."
+                )
+            )
+
+            return False
+
+        if permission_configured:
+
+            message_box = QMessageBox(self)
+            message_box.setIcon(QMessageBox.Icon.Information)
+            message_box.setWindowTitle(
+                "Restart Steam Flatpak"
+            )
+            message_box.setText(
+                "The read-only trainer-folder permission is already "
+                "configured, but the running Steam Flatpak instance has "
+                "not picked it up yet."
+            )
+            message_box.setInformativeText(
+                "TrainerBridge can close Steam now. It will start again "
+                "automatically with the selected game."
+            )
+
+            restart_button = message_box.addButton(
+                "Restart Steam",
+                QMessageBox.ButtonRole.AcceptRole
+            )
+            cancel_button = message_box.addButton(
+                QMessageBox.StandardButton.Cancel
+            )
+            message_box.setDefaultButton(cancel_button)
+            message_box.exec()
+
+            if message_box.clickedButton() is not restart_button:
+                return False
+
+            restart_steam_flatpak()
+            return True
+
+        message_box = QMessageBox(self)
+        message_box.setIcon(QMessageBox.Icon.Warning)
+        message_box.setWindowTitle(
+            "Steam Flatpak permission required"
+        )
+        message_box.setText(
+            "Steam Flatpak needs read-only access to TrainerBridge's "
+            "trainer folder."
+        )
+        message_box.setInformativeText(
+            f"Folder:\n{TRAINER_DIR}\n\n"
+            "TrainerBridge will only grant read access to this folder. "
+            "Steam will be closed so the new permission takes effect, "
+            "then it will start again with the selected game."
+        )
+
+        grant_button = message_box.addButton(
+            "Grant Read-only Access",
+            QMessageBox.ButtonRole.AcceptRole
+        )
+        cancel_button = message_box.addButton(
+            QMessageBox.StandardButton.Cancel
+        )
+        message_box.setDefaultButton(cancel_button)
+        message_box.exec()
+
+        if message_box.clickedButton() is not grant_button:
+            return False
+
+        try:
+
+            grant_steam_flatpak_read_access(TRAINER_DIR)
+            restart_steam_flatpak()
+
+        except Exception as error:
+
+            QMessageBox.critical(
+                self,
+                "Steam Flatpak permission failed",
+                str(error)
+            )
+
+            return False
+
+        self._append_log(
+            "Granted Steam Flatpak read-only access to the trainer folder."
+        )
+
+        return True
+
+
     def _start_launch_action(
         self,
         action
@@ -2471,6 +2601,9 @@ class MainWindow(QMainWindow):
             return
 
         if self._session_is_starting():
+            return
+
+        if not self._ensure_flatpak_trainer_access(game, action):
             return
 
         if self._trainer_is_running():

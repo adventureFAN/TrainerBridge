@@ -1,6 +1,9 @@
 import time
 from pathlib import Path
 
+from core.flatpak_steam import find_flatpak_game_session
+from core.steam import get_steam_info
+
 
 class GameRuntime:
 
@@ -10,7 +13,10 @@ class GameRuntime:
         launch_pid,
         game_pid,
         game_executable,
-        steam_process
+        steam_process,
+        steam_kind=None,
+        flatpak_instance=None,
+        flatpak_source_pid=None
     ):
 
         self.appid = appid
@@ -23,6 +29,9 @@ class GameRuntime:
 
         self.game_executable = game_executable
         self.steam_process = steam_process
+        self.steam_kind = steam_kind
+        self.flatpak_instance = flatpak_instance
+        self.flatpak_source_pid = flatpak_source_pid
 
 
     def __repr__(self):
@@ -38,6 +47,38 @@ class GameRuntime:
 
 
 class ProcessMonitor:
+
+    def __init__(self, steam_kind=None):
+
+        self.steam_kind = steam_kind
+
+
+    def _current_steam_kind(self):
+
+        if self.steam_kind:
+            return self.steam_kind
+
+        return get_steam_info().get("kind")
+
+
+    def _get_flatpak_runtime(self, appid):
+
+        session = find_flatpak_game_session(appid)
+
+        if session is None:
+            return None
+
+        return GameRuntime(
+            appid=appid,
+            launch_pid=session.source_pid,
+            game_pid=session.host_pid,
+            game_executable=session.game_executable,
+            steam_process=session.source_cmdline,
+            steam_kind="flatpak",
+            flatpak_instance=session.instance,
+            flatpak_source_pid=session.source_pid
+        )
+
 
     def _read_process_args(self, pid):
 
@@ -499,6 +540,9 @@ class ProcessMonitor:
 
     def get_runtime(self, appid):
 
+        if self._current_steam_kind() == "flatpak":
+            return self._get_flatpak_runtime(appid)
+
         processes = self._get_processes()
 
         launch_processes = (
@@ -538,7 +582,8 @@ class ProcessMonitor:
                 launch_pid=launch_process["pid"],
                 game_pid=game_process["pid"],
                 game_executable=target_executable,
-                steam_process=launch_process["cmdline"]
+                steam_process=launch_process["cmdline"],
+                steam_kind=self._current_steam_kind()
             )
 
 

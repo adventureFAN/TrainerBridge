@@ -1,11 +1,8 @@
 from PySide6.QtCore import (
-    QSettings,
     Qt,
-    QUrl
 )
 
 from PySide6.QtGui import (
-    QDesktopServices,
     QPixmap
 )
 
@@ -18,8 +15,9 @@ from PySide6.QtWidgets import (
     QVBoxLayout
 )
 
+from core.desktop import open_local_path, open_url
 from core.paths import LOG_DIR
-from core.preferences import remember_window_geometry
+from core.preferences import application_settings, remember_window_geometry
 from core.resources import resource_path
 from core.version import (
     APP_DESCRIPTION,
@@ -42,10 +40,7 @@ class AboutDialog(QDialog):
 
         super().__init__(parent)
 
-        self.settings = QSettings(
-            APP_NAME,
-            APP_NAME
-        )
+        self.settings = application_settings()
 
         self.setWindowTitle(
             f"About - {APP_NAME}"
@@ -178,7 +173,7 @@ class AboutDialog(QDialog):
         )
 
         beta_label = QLabel(
-            "Beta software - please report unexpected behavior."
+            "Release candidate - please report unexpected behavior."
         )
 
         beta_label.setWordWrap(
@@ -260,9 +255,7 @@ class AboutDialog(QDialog):
 
     def _open_project_page(self):
 
-        QDesktopServices.openUrl(
-            QUrl(PROJECT_URL)
-        )
+        open_url(PROJECT_URL)
 
 
     def _open_log_folder(self):
@@ -272,11 +265,7 @@ class AboutDialog(QDialog):
             exist_ok=True
         )
 
-        QDesktopServices.openUrl(
-            QUrl.fromLocalFile(
-                str(LOG_DIR)
-            )
-        )
+        open_local_path(LOG_DIR)
 
 
     def _show_third_party_notices(self):

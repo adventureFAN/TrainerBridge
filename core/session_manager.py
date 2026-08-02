@@ -14,8 +14,11 @@ class TrainerSessionManager:
 
     def __init__(self):
 
+        self.steam_info = get_steam_info()
         self.game_launcher = SteamGameLauncher()
-        self.process_monitor = ProcessMonitor()
+        self.process_monitor = ProcessMonitor(
+            steam_kind=self.steam_info.get("kind")
+        )
 
 
     @staticmethod
@@ -168,7 +171,7 @@ class TrainerSessionManager:
                 "the trainer."
             )
 
-        steam_info = get_steam_info()
+        steam_info = self.steam_info
 
         steam_install_path = steam_info[
             "install_path"
@@ -195,7 +198,8 @@ class TrainerSessionManager:
         )
 
         trainer_process = trainer_launcher.launch(
-            game
+            game,
+            runtime=runtime
         )
 
         if cancel_event is not None and cancel_event.is_set():
@@ -225,7 +229,7 @@ class TrainerSessionManager:
         self,
         game,
         timeout=60,
-        trainer_delay=8,
+        trainer_delay=4,
         cancel_event=None
     ):
 

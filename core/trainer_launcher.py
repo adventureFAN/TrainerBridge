@@ -1,6 +1,7 @@
 import subprocess
 from pathlib import Path
 
+from core.flatpak_steam import build_flatpak_trainer_command
 from core.host_process import host_environment
 
 
@@ -117,16 +118,36 @@ class TrainerLauncher:
 
     def launch(
         self,
-        game
+        game,
+        runtime=None
     ):
 
-        command = self.build_command(
-            game
-        )
+        if self.steam_kind == "flatpak":
 
-        environment = self.build_environment(
-            game
-        )
+            if runtime is None or not runtime.flatpak_instance:
+                raise RuntimeError(
+                    "The running Steam Flatpak game sandbox was not found."
+                )
+
+            self.validate_game(game)
+
+            command = build_flatpak_trainer_command(
+                game,
+                runtime,
+                self.steam_install_path
+            )
+
+            environment = host_environment()
+
+        else:
+
+            command = self.build_command(
+                game
+            )
+
+            environment = self.build_environment(
+                game
+            )
 
         print()
 
@@ -138,17 +159,21 @@ class TrainerLauncher:
             )
 
         print("Trainer command:")
-        print(
-            f'STEAM_COMPAT_DATA_PATH="{game.prefix}"'
-        )
-        print(
-            "STEAM_COMPAT_CLIENT_INSTALL_PATH="
-            f'"{self.steam_install_path}"'
-        )
-        print(
-            f'"{command[0]}" runinprefix '
-            f'"{game.trainer_path}"'
-        )
+
+        if self.steam_kind == "flatpak":
+            print(" ".join(command[:4]) + " ...")
+        else:
+            print(
+                f'STEAM_COMPAT_DATA_PATH="{game.prefix}"'
+            )
+            print(
+                "STEAM_COMPAT_CLIENT_INSTALL_PATH="
+                f'"{self.steam_install_path}"'
+            )
+            print(
+                f'"{command[0]}" runinprefix '
+                f'"{game.trainer_path}"'
+            )
         print()
 
         return subprocess.Popen(

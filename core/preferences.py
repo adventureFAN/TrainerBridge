@@ -2,6 +2,7 @@ from PySide6.QtCore import QSettings, Qt
 from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import QApplication, QStyleFactory
 
+from core.paths import DATA_DIR
 from core.version import APP_NAME
 
 
@@ -25,8 +26,20 @@ BACKUP_METHOD_COMPRESSED = "compressed"
 BACKUP_METHOD_FOLDER = "folder"
 
 
+SETTINGS_FILE = DATA_DIR / "settings.ini"
+
+
 def application_settings():
-    return QSettings(APP_NAME, APP_NAME)
+    SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    settings = QSettings(str(SETTINGS_FILE), QSettings.Format.IniFormat)
+
+    if not SETTINGS_FILE.exists() and not settings.allKeys():
+        legacy = QSettings(APP_NAME, APP_NAME)
+        for key in legacy.allKeys():
+            settings.setValue(key, legacy.value(key))
+        settings.sync()
+
+    return settings
 
 
 def remember_window_geometry(settings=None):
@@ -226,4 +239,5 @@ def apply_theme(application=None, theme=None):
         application.setPalette(_dark_palette())
 
     settings.setValue(THEME_KEY, selected_theme)
+    settings.sync()
     return selected_theme
