@@ -225,6 +225,10 @@ class BackupWorker(QObject):
                     progress_callback=self._report_progress
                 )
 
+            elif self.action == "delete":
+
+                result = self.backup_manager.delete_backup()
+
             else:
 
                 raise ValueError(
@@ -289,6 +293,7 @@ class ComponentsDialog(QDialog):
         self.backup_worker = None
         self.backup_action = None
         self.pending_install_components = None
+        self.refresh_after_backup_delete = False
         self.prefix_restored = False
 
         self.reload_after_install = False
@@ -573,10 +578,6 @@ class ComponentsDialog(QDialog):
             self.delete_backup_button
         )
 
-        main_layout.addWidget(
-            backup_group
-        )
-
         # Keep catalog controls immediately next to the catalog they affect.
         main_layout.addLayout(
             filter_layout
@@ -632,6 +633,13 @@ class ComponentsDialog(QDialog):
         main_layout.addWidget(
             self.category_tabs,
             1
+        )
+
+        # Backup controls belong with the lower operation/output area rather
+        # than the technical header. This keeps the catalog itself visually
+        # dominant while the safety controls remain easy to reach.
+        main_layout.addWidget(
+            backup_group
         )
 
         log_header_layout = QHBoxLayout()
@@ -2122,7 +2130,11 @@ class ComponentsDialog(QDialog):
         if self._is_busy():
             return
 
-        if self._prefix_operation_is_blocked():
+        if (
+            action != "delete"
+            and
+            self._prefix_operation_is_blocked()
+        ):
             return
 
         self.backup_action = action
@@ -2170,17 +2182,25 @@ class ComponentsDialog(QDialog):
             self._backup_thread_finished
         )
 
+        action_messages = {
+            "create": "Creating safety backup...",
+            "restore": "Restoring safety backup...",
+            "delete": "Deleting safety backup..."
+        }
+
         self._set_busy(
             True,
-            (
-                "Creating safety backup..."
-                if action == "create"
-                else "Restoring safety backup..."
+            action_messages.get(
+                action,
+                "Processing safety backup..."
             )
         )
 
-        self.progress_bar.setRange(0, 100)
-        self.progress_bar.setValue(0)
+        if action == "delete":
+            self.progress_bar.setRange(0, 0)
+        else:
+            self.progress_bar.setRange(0, 100)
+            self.progress_bar.setValue(0)
         self.cancel_operation_button.setVisible(
             action == "create"
         )
@@ -2294,6 +2314,26 @@ class ComponentsDialog(QDialog):
 
                 return
 
+            if action == "delete":
+                self.status_label.setText(
+                    "Safety backup deletion failed."
+                )
+
+                QMessageBox.critical(
+                    self,
+                    "Backup deletion failed",
+                    error
+                )
+
+                if self.refresh_after_backup_delete:
+                    self.refresh_after_backup_delete = False
+                    QTimer.singleShot(
+                        0,
+                        lambda: self.load_components(force_refresh=False)
+                    )
+
+                return
+
             self.status_label.setText(
                 "Safety backup operation failed."
             )
@@ -2362,20 +2402,56 @@ class ComponentsDialog(QDialog):
                 "Safety backup restored successfully."
             )
 
-            QMessageBox.information(
-                self,
-                "Backup restored",
-                (
-                    "The complete Proton compatdata backup was restored "
-                    "successfully. TrainerBridge will refresh the prefix "
-                    "information."
-                )
+            message_box = QMessageBox(self)
+            message_box.setIcon(QMessageBox.Icon.Information)
+            message_box.setWindowTitle("Backup restored")
+            message_box.setText(
+                "The complete Proton compatdata backup was restored "
+                "successfully."
+            )
+            message_box.setInformativeText(
+                "The safety backup is no longer required for this restore. "
+                "Delete it now? Keeping it allows you to restore the same "
+                "state again later."
             )
 
-            QTimer.singleShot(
-                0,
-                lambda: self.load_components(force_refresh=False)
+            delete_button = message_box.addButton(
+                "Delete Backup",
+                QMessageBox.ButtonRole.DestructiveRole
             )
+            keep_button = message_box.addButton(
+                "Keep Backup",
+                QMessageBox.ButtonRole.RejectRole
+            )
+            message_box.setDefaultButton(keep_button)
+            message_box.exec()
+
+            if message_box.clickedButton() is delete_button:
+                self.refresh_after_backup_delete = True
+                QTimer.singleShot(
+                    0,
+                    lambda: self._start_backup_operation(
+                        action="delete"
+                    )
+                )
+            else:
+                QTimer.singleShot(
+                    0,
+                    lambda: self.load_components(force_refresh=False)
+                )
+
+        elif action == "delete":
+
+            self.status_label.setText(
+                "Safety backup deleted."
+            )
+
+            if self.refresh_after_backup_delete:
+                self.refresh_after_backup_delete = False
+                QTimer.singleShot(
+                    0,
+                    lambda: self.load_components(force_refresh=False)
+                )
 
         del result
 
@@ -2444,19 +2520,8 @@ class ComponentsDialog(QDialog):
         if answer != QMessageBox.StandardButton.Yes:
             return
 
-        try:
-            self.backup_manager.delete_backup()
-        except Exception as error:
-            QMessageBox.critical(
-                self,
-                "Backup deletion failed",
-                str(error)
-            )
-            return
-
-        self._refresh_backup_status()
-        self.status_label.setText(
-            "Safety backup deleted."
+        self._start_backup_operation(
+            action="delete"
         )
 
 
