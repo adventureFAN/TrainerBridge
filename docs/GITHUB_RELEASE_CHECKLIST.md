@@ -1,116 +1,105 @@
-# GitHub Release Checklist for TrainerBridge 1.0.0
+# GitHub Release Checklist for TrainerBridge 1.0.1
 
-## 1. Prepare and test the source
+## 1. Final source and runtime checks
 
-```bash
-cd ~/TrainerBridge
+The release version must come from `core/version.py` and read `1.0.1`.
 
-python -m py_compile \
-  main.py \
-  about_dialog.py \
-  options_dialog.py \
-  components_dialog.py \
-  core/*.py
+Before publishing, the full 1.0.1 regression suite, the source self-test, the real Bazzite smoke tests, the final AppImage build, both SHA-256 checks, and the final AppImage self-test must all have passed.
 
-QT_QPA_PLATFORM=offscreen python main.py --self-test
-```
+## 2. Expected release artifacts
 
-## 2. Build release artifacts
-
-```bash
-./scripts/build_appimage.sh
-```
-
-Expected files:
+The final build must provide:
 
 ```text
-release/TrainerBridge-1.0.0-x86_64.AppImage
-release/TrainerBridge-1.0.0-x86_64.AppImage.sha256
-release/TrainerBridge-1.0.0-x86_64.tar.xz
-release/TrainerBridge-1.0.0-x86_64.tar.xz.sha256
+release/TrainerBridge-1.0.1-x86_64.AppImage
+release/TrainerBridge-1.0.1-x86_64.AppImage.sha256
+release/TrainerBridge-1.0.1-x86_64.tar.xz
+release/TrainerBridge-1.0.1-x86_64.tar.xz.sha256
 ```
 
 Verify checksums:
 
 ```bash
-cd release
-sha256sum -c TrainerBridge-1.0.0-x86_64.AppImage.sha256
-sha256sum -c TrainerBridge-1.0.0-x86_64.tar.xz.sha256
-cd ..
+cd ~/TrainerBridge/release
+sha256sum -c TrainerBridge-1.0.1-x86_64.AppImage.sha256
+sha256sum -c TrainerBridge-1.0.1-x86_64.tar.xz.sha256
 ```
 
-## 3. Commit the stable release
+Run the final AppImage self-test:
 
 ```bash
-git add -A
-git commit -m "Release TrainerBridge 1.0.0"
-git status
+./TrainerBridge-1.0.1-x86_64.AppImage --self-test
 ```
 
-The working tree must be clean.
+## 3. Publish helper
 
-## 4. Create the GitHub repository
+The repository contains `scripts/publish_github_release.sh` to perform the final Git/GitHub handoff safely.
 
-On GitHub, create a public repository named `TrainerBridge` under `adventureFAN`.
+It:
 
-Do not initialize it with a README, `.gitignore`, or license because the local repository already contains them.
+1. verifies version, repository, GitHub CLI authentication, checksums, AppImage self-test, and source hygiene;
+2. stages the complete public source while rejecting generated/build paths;
+3. shows the staged file list and diff summary before asking for confirmation;
+4. creates the release commit if required;
+5. pushes `main`;
+6. creates and pushes annotated tag `v1.0.1`;
+7. creates a **draft** GitHub Release with `docs/RELEASE_NOTES_1.0.1.md` and the four release assets.
 
-Then connect and push:
+Run from the project directory:
 
 ```bash
-git branch -M main
-git remote add origin https://github.com/adventureFAN/TrainerBridge.git
-git push -u origin main
+cd ~/TrainerBridge
+./scripts/publish_github_release.sh
 ```
 
-When `origin` already exists, inspect it first:
+The script deliberately creates a draft rather than immediately publishing it. Review the GitHub draft once, then click **Publish release**.
 
-```bash
-git remote -v
+## 4. What belongs in GitHub
+
+The Git repository contains the actual source, tests, documentation, packaging files, and build scripts.
+
+Generated/local content must not be committed, including:
+
+```text
+venv/
+.build-venv/
+build/
+dist/
+release/
+TrainerBridge.AppDir/
+tools/
+__pycache__/
 ```
 
-## 5. Create and push the tag
+The four files under `release/` are uploaded as GitHub Release assets rather than tracked in Git.
 
-```bash
-git tag -a v1.0.0 -m "TrainerBridge 1.0.0"
-git push origin v1.0.0
+GitHub automatically exposes source-code `.zip` and `.tar.gz` downloads for the tagged repository state, so no manually prepared source archive is required.
+
+## 5. Release metadata
+
+Tag:
+
+```text
+v1.0.1
 ```
-
-## 6. Create the GitHub release
-
-Open **Releases**, choose **Draft a new release**, and select tag `v1.0.0`.
 
 Release title:
 
 ```text
-TrainerBridge 1.0.0
+TrainerBridge 1.0.1
 ```
 
-Paste the contents of `docs/RELEASE_NOTES_1.0.0.md` into the description.
-
-Upload these four release assets:
+Release notes:
 
 ```text
-TrainerBridge-1.0.0-x86_64.AppImage
-TrainerBridge-1.0.0-x86_64.AppImage.sha256
-TrainerBridge-1.0.0-x86_64.tar.xz
-TrainerBridge-1.0.0-x86_64.tar.xz.sha256
+docs/RELEASE_NOTES_1.0.1.md
 ```
 
-Publish it as the latest release. GitHub automatically provides source-code archives, so no manual source ZIP is required.
-
-## 7. Repository settings
-
-Suggested repository description:
+Release assets:
 
 ```text
-Launch standalone Windows trainers alongside Steam games running through Proton on Linux.
+TrainerBridge-1.0.1-x86_64.AppImage
+TrainerBridge-1.0.1-x86_64.AppImage.sha256
+TrainerBridge-1.0.1-x86_64.tar.xz
+TrainerBridge-1.0.1-x86_64.tar.xz.sha256
 ```
-
-Suggested topics:
-
-```text
-linux steam proton wine trainer gaming pyside6 appimage protontricks flatpak snap
-```
-
-Enable Issues and private vulnerability reporting. Add the repository link to the About section and select the `MIT` license topic when GitHub detects it.

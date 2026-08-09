@@ -178,5 +178,6 @@ class TrainerLauncher:
 
         return subprocess.Popen(
             command,
-            env=environment
+            env=environment,
+            start_new_session=True
         )

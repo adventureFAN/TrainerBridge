@@ -19,15 +19,17 @@ No local Python build environment is required for the release build.
 
 The first build downloads the Ubuntu image and build tooling and may take several minutes. Later builds reuse the container cache.
 
+The release build uses the fixed upstream `appimagetool` release **1.9.1** from the maintained `AppImage/appimagetool` repository. The cached tool filename includes that version, so changing the pinned release cannot silently reuse an older cached `continuous` binary.
+
 ## Output
 
 The `release/` directory contains:
 
 ```text
-TrainerBridge-1.0.0-x86_64.AppImage
-TrainerBridge-1.0.0-x86_64.AppImage.sha256
-TrainerBridge-1.0.0-x86_64.tar.xz
-TrainerBridge-1.0.0-x86_64.tar.xz.sha256
+TrainerBridge-<version>-x86_64.AppImage
+TrainerBridge-<version>-x86_64.AppImage.sha256
+TrainerBridge-<version>-x86_64.tar.xz
+TrainerBridge-<version>-x86_64.tar.xz.sha256
 ```
 
 The AppImage is the normal release. The `.tar.xz` archive is a FUSE-free fallback.
@@ -35,16 +37,16 @@ The AppImage is the normal release. The `.tar.xz` archive is a FUSE-free fallbac
 ## Test the AppImage
 
 ```bash
-./release/TrainerBridge-1.0.0-x86_64.AppImage --self-test
+./release/TrainerBridge-<version>-x86_64.AppImage --self-test
 
 APPIMAGE_EXTRACT_AND_RUN=1 \
-  ./release/TrainerBridge-1.0.0-x86_64.AppImage --self-test
+  ./release/TrainerBridge-<version>-x86_64.AppImage --self-test
 ```
 
 ## Use the portable archive
 
 ```bash
-tar -xf release/TrainerBridge-1.0.0-x86_64.tar.xz
+tar -xf release/TrainerBridge-<version>-x86_64.tar.xz
 ./TrainerBridge/TrainerBridge
 ```
 
@@ -55,9 +57,12 @@ The build fails when:
 - the frozen application self-test fails;
 - the AppDir self-test fails;
 - the AppImage self-test fails;
-- developer-specific `/home/alex` paths are embedded;
+- developer-specific absolute home paths such as `/home/<user>/...` or `/var/home/<user>/...` are embedded in staged text content;
 - the old project name `ProtonTrainerManager` is embedded;
-- the desktop entry is invalid.
+- the desktop entry is invalid;
+- the pinned `appimagetool` download cannot be obtained.
+
+The staged home-path check intentionally treats binary dependencies as vendor artifacts rather than text. Third-party ELF libraries can contain harmless upstream build paths (for example Qt's `/home/<vendor-user>/work/...`); TrainerBridge-owned source text is covered separately by `tests/test_source_hygiene.py`.
 
 The build reports the highest bundled `GLIBC_*` symbol requirement and generates SHA-256 checksum files with relative filenames.
 

@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 from pathlib import Path
 
+from core.validation import validate_steam_appid
+
 
 @dataclass
 class GameProfile:
@@ -19,3 +21,6 @@ class GameProfile:
     trainer_path: Path | None = None
 
     status: str = "UNKNOWN"
+
+    def __post_init__(self):
+        self.appid = validate_steam_appid(self.appid)

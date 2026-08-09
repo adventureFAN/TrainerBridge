@@ -1,6 +1,5 @@
 APP_NAME = "TrainerBridge"
-APP_VERSION = "1.0.0"
-APP_DISPLAY_VERSION = "1.0"
+APP_VERSION = "1.0.1"
 APP_ID = "io.github.adventurefan.trainerbridge"
 APP_DESCRIPTION = (
     "Launch Windows trainers alongside Steam games "

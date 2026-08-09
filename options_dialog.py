@@ -41,6 +41,7 @@ from core.version import APP_NAME
 
 
 OPTIONS_GEOMETRY_KEY = "options/geometry"
+OPTIONS_WINDOW_SIZE = (620, 460)
 
 
 class OptionsDialog(QDialog):
@@ -49,12 +50,10 @@ class OptionsDialog(QDialog):
 
         self.settings = application_settings()
         self.setWindowTitle(f"Options - {APP_NAME}")
-        self.resize(620, 460)
-        self.setMinimumSize(560, 420)
-
         self._build_interface()
         self._load_settings()
         self._restore_geometry()
+        self.setFixedSize(*OPTIONS_WINDOW_SIZE)
 
     def _build_interface(self):
         layout = QVBoxLayout(self)
@@ -95,7 +94,7 @@ class OptionsDialog(QDialog):
         appearance_layout.addRow("Theme:", self.theme_combo)
 
         self.remember_geometry_checkbox = QCheckBox(
-            "Remember window sizes and positions"
+            "Remember window positions and layout"
         )
         appearance_layout.addRow("", self.remember_geometry_checkbox)
 

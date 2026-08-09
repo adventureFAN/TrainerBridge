@@ -5,14 +5,14 @@
 Make it executable:
 
 ```bash
-chmod +x TrainerBridge-1.0.0-x86_64.AppImage
+chmod +x TrainerBridge-<version>-x86_64.AppImage
 ```
 
 Run without FUSE:
 
 ```bash
 APPIMAGE_EXTRACT_AND_RUN=1 \
-  ./TrainerBridge-1.0.0-x86_64.AppImage
+  ./TrainerBridge-<version>-x86_64.AppImage
 ```
 
 ## A game is missing
@@ -21,7 +21,7 @@ APPIMAGE_EXTRACT_AND_RUN=1 \
 2. Confirm that Steam created `steamapps/compatdata/<AppID>`.
 3. Confirm that the game is forced to use Proton when necessary.
 4. Select **Rescan** in TrainerBridge.
-5. Check the live log and `~/.local/share/TrainerBridge/logs/`.
+5. Check the in-app Live Log. Use **Copy all** or **Save as...** if you need to share it.
 
 ## The game starts but the trainer does not
 
@@ -60,13 +60,16 @@ A Btrfs copy-on-write folder reports the full logical size even though most data
 
 Check that `xdg-open` or `gio` is available and that a graphical file manager is installed. The application log may contain the failed host command.
 
-## Logs and data
+## Live Log and data
+
+TrainerBridge does not create persistent log files automatically. Use the Live Log buttons **Copy all**, **Save as...**, and **Clear**. **Save as...** writes a text file only to the location you explicitly choose.
+
+Persistent application data remains under:
 
 ```text
-~/.local/share/TrainerBridge/logs/
 ~/.local/share/TrainerBridge/settings.ini
 ~/.local/share/TrainerBridge/trainers.json
 ~/.local/share/TrainerBridge/backups/
 ```
 
-Remove private paths and personal information before posting logs publicly. Never upload trainer binaries, game files, save files, or complete prefixes.
+Remove private paths and personal information before posting saved/copied Live Log text publicly. Never upload trainer binaries, game files, save files, or complete prefixes.

@@ -15,13 +15,12 @@ from PySide6.QtWidgets import (
     QVBoxLayout
 )
 
-from core.desktop import open_local_path, open_url
-from core.paths import LOG_DIR
+from core.desktop import open_url
 from core.preferences import application_settings, remember_window_geometry
 from core.resources import resource_path
 from core.version import (
     APP_DESCRIPTION,
-    APP_DISPLAY_VERSION,
+    APP_VERSION,
     APP_NAME,
     AUTHOR_NAME,
     PROJECT_URL
@@ -29,6 +28,8 @@ from core.version import (
 
 
 ABOUT_GEOMETRY_KEY = "about/geometry"
+ABOUT_WINDOW_SIZE = (520, 500)
+THIRD_PARTY_WINDOW_SIZE = (720, 560)
 
 
 class AboutDialog(QDialog):
@@ -46,12 +47,9 @@ class AboutDialog(QDialog):
             f"About - {APP_NAME}"
         )
 
-        self.setFixedWidth(
-            520
-        )
-
         self._build_interface()
         self._restore_ui_state()
+        self.setFixedSize(*ABOUT_WINDOW_SIZE)
 
 
     def _restore_ui_state(self):
@@ -153,7 +151,7 @@ class AboutDialog(QDialog):
         )
 
         version_label = QLabel(
-            f"Version {APP_DISPLAY_VERSION}"
+            f"Version {APP_VERSION}"
         )
 
         version_label.setAlignment(
@@ -219,14 +217,6 @@ class AboutDialog(QDialog):
                 project_button
             )
 
-        log_button = QPushButton(
-            "Open Log Folder"
-        )
-
-        log_button.clicked.connect(
-            self._open_log_folder
-        )
-
         notices_button = QPushButton(
             "Third-Party Notices"
         )
@@ -243,7 +233,6 @@ class AboutDialog(QDialog):
             self.accept
         )
 
-        button_layout.addWidget(log_button)
         button_layout.addWidget(notices_button)
         button_layout.addStretch(1)
         button_layout.addWidget(close_button)
@@ -257,15 +246,6 @@ class AboutDialog(QDialog):
 
         open_url(PROJECT_URL)
 
-
-    def _open_log_folder(self):
-
-        LOG_DIR.mkdir(
-            parents=True,
-            exist_ok=True
-        )
-
-        open_local_path(LOG_DIR)
 
 
     def _show_third_party_notices(self):
@@ -293,10 +273,7 @@ class AboutDialog(QDialog):
             "Third-Party Notices"
         )
 
-        dialog.resize(
-            720,
-            560
-        )
+        dialog.setFixedSize(*THIRD_PARTY_WINDOW_SIZE)
 
         layout = QVBoxLayout(dialog)
 

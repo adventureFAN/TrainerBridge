@@ -20,8 +20,9 @@ LICENSE_STAGE="$PROJECT_ROOT/.license-stage"
 RELEASE_DIR="$PROJECT_ROOT/release"
 TOOLS_DIR="$PROJECT_ROOT/tools"
 
-APPIMAGETOOL="$TOOLS_DIR/appimagetool-${ARCHITECTURE}.AppImage"
-APPIMAGETOOL_URL="https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-${ARCHITECTURE}.AppImage"
+APPIMAGETOOL_VERSION="1.9.1"
+APPIMAGETOOL="$TOOLS_DIR/appimagetool-${APPIMAGETOOL_VERSION}-${ARCHITECTURE}.AppImage"
+APPIMAGETOOL_URL="https://github.com/AppImage/appimagetool/releases/download/${APPIMAGETOOL_VERSION}/appimagetool-${ARCHITECTURE}.AppImage"
 
 APPIMAGE_NAME="${APP_NAME}-${VERSION}-${ARCHITECTURE}.AppImage"
 ARCHIVE_NAME="${APP_NAME}-${VERSION}-${ARCHITECTURE}.tar.xz"
@@ -55,7 +56,7 @@ done
 
 echo "Build environment:"
 python3 --version
-ldd --version | head -n 1
+ldd --version 2>&1 | sed -n '1p'
 python3 -m PyInstaller --version
 
 echo "Cleaning previous build output..."
@@ -107,7 +108,8 @@ mkdir -p \
 cp -a "$DIST_DIR/TrainerBridge/." "$APPDIR/usr/bin/"
 cp "$PROJECT_ROOT/packaging/AppRun" "$APPDIR/AppRun"
 cp "$PROJECT_ROOT/packaging/trainerbridge.desktop" "$APPDIR/trainerbridge.desktop"
-cp "$PROJECT_ROOT/packaging/trainerbridge.desktop" "$APPDIR/usr/share/applications/trainerbridge.desktop"
+printf '\nX-AppImage-Version=%s\n' "$VERSION" >> "$APPDIR/trainerbridge.desktop"
+cp "$APPDIR/trainerbridge.desktop" "$APPDIR/usr/share/applications/trainerbridge.desktop"
 cp "$PROJECT_ROOT/assets/trainerbridge.png" "$APPDIR/trainerbridge.png"
 cp "$PROJECT_ROOT/assets/trainerbridge-32.png" "$APPDIR/usr/share/icons/hicolor/32x32/apps/trainerbridge.png"
 cp "$PROJECT_ROOT/assets/trainerbridge-64.png" "$APPDIR/usr/share/icons/hicolor/64x64/apps/trainerbridge.png"
@@ -129,14 +131,22 @@ echo "Running AppDir self-test..."
 QT_QPA_PLATFORM=offscreen \
 "$APPDIR/AppRun" --self-test
 
-echo "Checking for developer-specific absolute paths..."
-for forbidden_text in "/home/alex" "ProtonTrainerManager"; do
-    if grep -R -a -F -l "$forbidden_text" "$APPDIR" >/tmp/trainerbridge-path-hits.txt 2>/dev/null; then
-        echo "Found forbidden build path text: $forbidden_text" >&2
-        cat /tmp/trainerbridge-path-hits.txt >&2
-        exit 1
-    fi
-done
+echo "Checking staged text files for developer-specific absolute paths..."
+# Third-party ELF binaries (for example Qt) can legitimately contain their own
+# upstream build paths such as /home/<vendor-user>/work/... . Public-source hygiene tests
+# already reject concrete home paths in TrainerBridge-owned source text, so the
+# staged release check intentionally scans text files only.
+if grep -R -I -E -l '/(var/)?home/[^/[:space:]]+' "$APPDIR" >/tmp/trainerbridge-path-hits.txt 2>/dev/null; then
+    echo "Found a developer-specific home path in staged text content:" >&2
+    cat /tmp/trainerbridge-path-hits.txt >&2
+    exit 1
+fi
+
+if grep -R -a -F -l "ProtonTrainerManager" "$APPDIR" >/tmp/trainerbridge-path-hits.txt 2>/dev/null; then
+    echo "Found forbidden old project-name text: ProtonTrainerManager" >&2
+    cat /tmp/trainerbridge-path-hits.txt >&2
+    exit 1
+fi
 
 echo "Determining maximum bundled GLIBC symbol requirement..."
 MAX_GLIBC="$({
@@ -152,7 +162,7 @@ MAX_GLIBC="$({
 echo "Maximum GLIBC symbol found: ${MAX_GLIBC:-none}"
 
 if [[ ! -x "$APPIMAGETOOL" ]]; then
-    echo "Downloading appimagetool..."
+    echo "Downloading pinned appimagetool ${APPIMAGETOOL_VERSION}..."
     curl \
         --fail \
         --location \

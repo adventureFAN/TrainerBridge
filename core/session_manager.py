@@ -4,6 +4,7 @@ from core.game_launcher import SteamGameLauncher
 from core.process_monitor import ProcessMonitor
 from core.steam import get_steam_info
 from core.trainer_launcher import TrainerLauncher
+from core.trainer_process import stop_trainer_process
 
 
 class LaunchCancelled(RuntimeError):
@@ -12,12 +13,31 @@ class LaunchCancelled(RuntimeError):
 
 class TrainerSessionManager:
 
-    def __init__(self):
+    def __init__(
+        self,
+        progress_callback=None
+    ):
 
         self.steam_info = get_steam_info()
         self.game_launcher = SteamGameLauncher()
         self.process_monitor = ProcessMonitor(
             steam_kind=self.steam_info.get("kind")
+        )
+        self.progress_callback = progress_callback
+
+
+    def _progress(
+        self,
+        level,
+        message
+    ):
+
+        if self.progress_callback is None:
+            return
+
+        self.progress_callback(
+            level,
+            message
         )
 
 
@@ -52,20 +72,18 @@ class TrainerSessionManager:
         if trainer_process is None:
             return
 
-        try:
-            if trainer_process.poll() is not None:
-                return
 
-            trainer_process.terminate()
-            trainer_process.wait(timeout=3)
+        process_group = getattr(
+            trainer_process,
+            "pid",
+            None
+        )
 
-        except Exception:
-
-            try:
-                if trainer_process.poll() is None:
-                    trainer_process.kill()
-            except Exception:
-                pass
+        stop_trainer_process(
+            trainer_process,
+            process_group=process_group,
+            timeout=3
+        )
 
 
     def launch_game(
@@ -76,6 +94,11 @@ class TrainerSessionManager:
     ):
 
         self._raise_if_cancelled(cancel_event)
+
+        self._progress(
+            "INFO",
+            f"Checking whether {game.name} is already running..."
+        )
 
         print(
             f"Checking whether {game.name} is already running..."
@@ -90,6 +113,11 @@ class TrainerSessionManager:
 
         if game_was_running:
 
+            self._progress(
+                "INFO",
+                "The game is already running; verifying its executable."
+            )
+
             print(
                 "The game is already running. "
                 "Verifying the game executable..."
@@ -97,11 +125,21 @@ class TrainerSessionManager:
 
         else:
 
+            self._progress(
+                "INFO",
+                "The game is not running yet."
+            )
+
             print(
                 "The game is not running yet."
             )
 
             self._raise_if_cancelled(cancel_event)
+
+            self._progress(
+                "INFO",
+                f"Starting {game.name} through Steam..."
+            )
 
             print(
                 "Starting the game through Steam..."
@@ -112,6 +150,14 @@ class TrainerSessionManager:
             )
 
         self._raise_if_cancelled(cancel_event)
+
+        self._progress(
+            "INFO",
+            (
+                "Waiting for the actual game executable to remain stable "
+                f"for 5 seconds (timeout: {timeout} seconds)..."
+            )
+        )
 
         print(
             "Waiting for the actual game executable "
@@ -136,6 +182,15 @@ class TrainerSessionManager:
             )
 
         self._raise_if_cancelled(cancel_event)
+
+        self._progress(
+            "OK",
+            (
+                "Game executable stable: "
+                f"{runtime.game_executable} "
+                f"(PID {runtime.game_pid})."
+            )
+        )
 
         print()
         print("Game detected:")
@@ -192,6 +247,11 @@ class TrainerSessionManager:
 
         self._raise_if_cancelled(cancel_event)
 
+        self._progress(
+            "INFO",
+            "Starting the trainer inside the running game prefix..."
+        )
+
         print()
         print(
             "Starting the trainer inside the running game prefix..."
@@ -214,12 +274,18 @@ class TrainerSessionManager:
 
         trainer_started_at = time.monotonic()
 
+        self._progress(
+            "OK",
+            "Trainer started."
+        )
+
         return {
             "action": "trainer",
             "game": game,
             "runtime": runtime,
             "game_process": None,
             "trainer_process": trainer_process,
+            "trainer_process_group": trainer_process.pid,
             "trainer_started_at": trainer_started_at,
             "game_was_running": True
         }
@@ -240,6 +306,14 @@ class TrainerSessionManager:
         )
 
         if trainer_delay > 0:
+
+            self._progress(
+                "INFO",
+                (
+                    f"Waiting {trainer_delay} seconds for the game "
+                    "to finish starting before launching the trainer..."
+                )
+            )
 
             print()
             print(
@@ -265,6 +339,7 @@ class TrainerSessionManager:
             "runtime": trainer_session["runtime"],
             "game_process": game_session["game_process"],
             "trainer_process": trainer_session["trainer_process"],
+            "trainer_process_group": trainer_session["trainer_process_group"],
             "trainer_started_at": trainer_session["trainer_started_at"],
             "game_was_running": game_session["game_was_running"]
         }

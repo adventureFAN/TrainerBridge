@@ -8,6 +8,7 @@ from core.paths import (
     LEGACY_DATA_DIR,
     TRAINER_DIR
 )
+from core.validation import validate_steam_appid
 
 
 def _migrate_saved_trainer_paths(data):
@@ -123,6 +124,8 @@ def save_trainers(data):
 
 def import_trainer(appid, trainer_file):
 
+    appid = validate_steam_appid(appid)
+
     trainer_file = Path(
         trainer_file
     )
@@ -141,7 +144,7 @@ def import_trainer(appid, trainer_file):
 
     target_dir = (
         TRAINER_DIR
-        / str(appid)
+        / appid
     )
 
     target_dir.mkdir(
@@ -177,7 +180,7 @@ def import_trainer(appid, trainer_file):
 
     trainers = load_trainers()
 
-    trainers[str(appid)] = {
+    trainers[appid] = {
         "trainer": str(target_file)
     }
 
@@ -190,10 +193,12 @@ def import_trainer(appid, trainer_file):
 
 def remove_trainer(appid):
 
-    trainers = load_trainers()
-    trainer_data = trainers.pop(str(appid), None)
+    appid = validate_steam_appid(appid)
 
-    target_dir = TRAINER_DIR / str(appid)
+    trainers = load_trainers()
+    trainer_data = trainers.pop(appid, None)
+
+    target_dir = TRAINER_DIR / appid
 
     if target_dir.exists():
         shutil.rmtree(target_dir)

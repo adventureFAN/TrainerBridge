@@ -11,7 +11,7 @@ body:
     id: version
     attributes:
       label: TrainerBridge version
-      placeholder: "1.0.0 AppImage"
+      placeholder: "e.g. version shown in About, AppImage"
     validations:
       required: true
   - type: input
@@ -94,7 +94,7 @@ body:
     id: logs
     attributes:
       label: Relevant log output
-      description: Paste text only and remove personal information. Logs are under ~/.local/share/TrainerBridge/logs/.
+      description: Paste text copied from TrainerBridge's Live Log (or from a file you explicitly saved with Save as...). Remove personal information first.
       render: text
   - type: checkboxes
     id: confirmations

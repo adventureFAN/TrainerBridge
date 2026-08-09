@@ -3,6 +3,7 @@ import subprocess
 
 from core.host_process import host_environment
 from core.steam import get_steam_info
+from core.validation import validate_steam_appid
 
 
 class SteamGameLauncher:
@@ -11,6 +12,8 @@ class SteamGameLauncher:
         self,
         appid
     ):
+
+        appid = validate_steam_appid(appid)
 
         steam_uri = (
             f"steam://rungameid/{appid}"

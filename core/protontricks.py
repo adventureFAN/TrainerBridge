@@ -13,11 +13,24 @@ from core.paths import CACHE_DIR
 from core.host_process import host_environment
 from core.process_monitor import ProcessMonitor
 from core.steam import get_steam_info
+from core.validation import validate_steam_appid
 
 
 FLATPAK_APP_ID = (
     "com.github.Matoking.protontricks"
 )
+
+
+# Discovery runs while the Prefix Components dialog is opening. Keep this
+# short and bounded so a broken Flatpak installation can never stall startup
+# indefinitely. The call itself is also moved to a worker thread by the UI.
+FLATPAK_DETECTION_TIMEOUT_SECONDS = 5
+
+# Catalog/version/status commands are read-only but can still hang when
+# Protontricks, Wine, Flatpak or the Steam runtime is unhealthy. They run in a
+# worker thread and receive a generous finite timeout. Prefix-changing
+# operations intentionally do NOT use this timeout.
+PROTONTRICKS_QUERY_TIMEOUT_SECONDS = 30
 
 
 PROTONTRICKS_CATEGORIES = {
@@ -128,6 +141,44 @@ class ProtontricksError(
 ):
 
     pass
+
+
+class ProtontricksTimeoutError(
+    ProtontricksError
+):
+
+    def __init__(
+        self,
+        command,
+        timeout_seconds,
+        output=""
+    ):
+
+        self.command = command
+        self.timeout_seconds = timeout_seconds
+        self.output = output
+
+        command_text = " ".join(
+            str(part)
+            for part in command
+        )
+
+        message = (
+            "The Protontricks command did not finish within "
+            f"{timeout_seconds} seconds.\n"
+            f"Command: {command_text}"
+        )
+
+        if output.strip():
+
+            message += (
+                "\n\nOutput before timeout:\n"
+                f"{output.strip()}"
+            )
+
+        super().__init__(
+            message
+        )
 
 
 class ProtontricksCommandError(
@@ -244,17 +295,29 @@ class ProtontricksManager:
 
         if flatpak_command:
 
-            result = subprocess.run(
-                [
-                    flatpak_command,
-                    "info",
-                    FLATPAK_APP_ID
-                ],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                check=False,
-                env=host_environment()
-            )
+            try:
+
+                result = subprocess.run(
+                    [
+                        flatpak_command,
+                        "info",
+                        FLATPAK_APP_ID
+                    ],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    check=False,
+                    env=host_environment(),
+                    timeout=FLATPAK_DETECTION_TIMEOUT_SECONDS
+                )
+
+            except subprocess.TimeoutExpired as error:
+
+                raise ProtontricksError(
+                    "Flatpak did not respond within "
+                    f"{FLATPAK_DETECTION_TIMEOUT_SECONDS} seconds "
+                    "while TrainerBridge was checking for the "
+                    "Protontricks Flatpak."
+                ) from error
 
             if result.returncode == 0:
 
@@ -431,7 +494,8 @@ class ProtontricksManager:
         self,
         arguments,
         force_english,
-        no_bwrap
+        no_bwrap,
+        timeout=None
     ):
 
         command = self.build_command(
@@ -439,15 +503,31 @@ class ProtontricksManager:
             no_bwrap=no_bwrap
         )
 
-        result = subprocess.run(
-            command,
-            capture_output=True,
-            text=False,
-            env=self._build_environment(
-                force_english=force_english
-            ),
-            check=False
-        )
+        try:
+
+            result = subprocess.run(
+                command,
+                capture_output=True,
+                text=False,
+                env=self._build_environment(
+                    force_english=force_english
+                ),
+                check=False,
+                timeout=timeout
+            )
+
+        except subprocess.TimeoutExpired as error:
+
+            output = self._combine_output(
+                error.stdout,
+                error.stderr
+            )
+
+            raise ProtontricksTimeoutError(
+                command=command,
+                timeout_seconds=timeout,
+                output=output
+            ) from error
 
         output = self._combine_output(
             result.stdout,
@@ -464,14 +544,16 @@ class ProtontricksManager:
     def _run_capture_result(
         self,
         *arguments,
-        force_english=True
+        force_english=True,
+        timeout=None
     ):
 
         command, return_code, output = (
             self._execute_capture(
                 arguments=arguments,
                 force_english=force_english,
-                no_bwrap=self.force_no_bwrap
+                no_bwrap=self.force_no_bwrap,
+                timeout=timeout
             )
         )
 
@@ -494,7 +576,8 @@ class ProtontricksManager:
                 self._execute_capture(
                     arguments=arguments,
                     force_english=force_english,
-                    no_bwrap=True
+                    no_bwrap=True,
+                    timeout=timeout
                 )
             )
 
@@ -519,13 +602,15 @@ class ProtontricksManager:
     def _run_capture(
         self,
         *arguments,
-        force_english=True
+        force_english=True,
+        timeout=None
     ):
 
         command, return_code, output = (
             self._run_capture_result(
                 *arguments,
-                force_english=force_english
+                force_english=force_english,
+                timeout=timeout
             )
         )
 
@@ -543,13 +628,15 @@ class ProtontricksManager:
     def _run_capture_allow_failure(
         self,
         *arguments,
-        force_english=True
+        force_english=True,
+        timeout=None
     ):
 
         _command, return_code, output = (
             self._run_capture_result(
                 *arguments,
-                force_english=force_english
+                force_english=force_english,
+                timeout=timeout
             )
         )
 
@@ -562,7 +649,8 @@ class ProtontricksManager:
     def get_version(self):
 
         output = self._run_capture(
-            "--version"
+            "--version",
+            timeout=PROTONTRICKS_QUERY_TIMEOUT_SECONDS
         )
 
         fallback = None
@@ -690,7 +778,8 @@ class ProtontricksManager:
 
         output = self._run_capture(
             str(appid),
-            "list-installed"
+            "list-installed",
+            timeout=PROTONTRICKS_QUERY_TIMEOUT_SECONDS
         )
 
         return self._parse_installed_output(
@@ -713,7 +802,8 @@ class ProtontricksManager:
         output = self._run_capture(
             str(appid),
             category,
-            "list"
+            "list",
+            timeout=PROTONTRICKS_QUERY_TIMEOUT_SECONDS
         )
 
         return self._parse_component_output(
@@ -784,6 +874,7 @@ class ProtontricksManager:
         appid
     ):
 
+        appid = validate_steam_appid(appid)
         steam_info = get_steam_info()
 
         for library in steam_info.get("libraries", []):
@@ -792,7 +883,7 @@ class ProtontricksManager:
                 Path(library)
                 / "steamapps"
                 / "compatdata"
-                / str(appid)
+                / appid
                 / "pfx"
             )
 

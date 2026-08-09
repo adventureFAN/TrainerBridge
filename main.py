@@ -1,4 +1,3 @@
-import logging
 import sys
 import threading
 import time
@@ -39,7 +38,7 @@ from PySide6.QtWidgets import (
     QScrollArea,
     QSizePolicy,
     QSplitter,
-    QTextEdit,
+    QPlainTextEdit,
     QTreeWidget,
     QTreeWidgetItem,
     QVBoxLayout,
@@ -59,6 +58,7 @@ from core.flatpak_steam import (
     steam_flatpak_can_read,
     steam_flatpak_has_running_game
 )
+from core.live_log import format_live_log_entry
 from core.logging_setup import setup_logging
 from core.paths import DATA_DIR, TRAINER_DIR
 from core.preferences import (
@@ -75,6 +75,11 @@ from core.session_manager import (
     LaunchCancelled,
     TrainerSessionManager
 )
+from core.trainer_process import (
+    request_trainer_process_stop,
+    trainer_process_is_running
+)
+from core.single_instance import SingleInstanceLock
 from core.storage import (
     import_trainer as store_trainer,
     remove_trainer as remove_stored_trainer
@@ -82,7 +87,7 @@ from core.storage import (
 from core.steam import get_steam_info
 from core.version import (
     APP_DESCRIPTION,
-    APP_DISPLAY_VERSION,
+    APP_VERSION,
     APP_NAME
 )
 
@@ -106,6 +111,8 @@ EARLY_TRAINER_EXIT_NOTICE_KEY = HIDE_EARLY_TRAINER_EXIT_KEY
 
 
 MAIN_GEOMETRY_KEY = "main/geometry"
+MAIN_WINDOW_SIZE_WITH_LOG = (1220, 800)
+MAIN_WINDOW_SIZE_WITHOUT_LOG = (1220, 620)
 MAIN_WINDOW_STATE_KEY = "main/window_state"
 MAIN_SPLITTER_SIZES_KEY = "main/splitter_sizes"
 MAIN_STATUS_FILTER_KEY = "main/status_filter"
@@ -114,6 +121,7 @@ MAIN_SELECTED_APPID_KEY = "main/selected_appid"
 MAIN_LOG_VISIBLE_KEY = "main/log_visible"
 
 EARLY_TRAINER_EXIT_SECONDS = 15
+TRAINER_AUTO_STOP_GRACE_SECONDS = 3
 
 
 class SessionWorker(QObject):
@@ -121,6 +129,7 @@ class SessionWorker(QObject):
     finished = Signal(object)
     failed = Signal(str)
     cancelled = Signal(str)
+    progress = Signal(str, str)
 
 
     def __init__(
@@ -141,12 +150,26 @@ class SessionWorker(QObject):
         self.cancel_event.set()
 
 
+    def _report_progress(
+        self,
+        level,
+        message
+    ):
+
+        self.progress.emit(
+            level,
+            message
+        )
+
+
     @Slot()
     def run(self):
 
         try:
 
-            session_manager = TrainerSessionManager()
+            session_manager = TrainerSessionManager(
+                progress_callback=self._report_progress
+            )
 
             if self.action == "combined":
 
@@ -208,10 +231,6 @@ class MainWindow(QMainWindow):
 
         self.settings = application_settings()
 
-        self.logger = logging.getLogger(
-            APP_NAME
-        )
-
         self.saved_selected_appid = None
 
         self.games = []
@@ -221,6 +240,7 @@ class MainWindow(QMainWindow):
         self.session_worker = None
         self.session_action = None
         self.session_cancel_requested = False
+        self._close_after_session_thread = False
         self.active_session = None
 
         self.runtime_monitor = ProcessMonitor(
@@ -243,14 +263,14 @@ class MainWindow(QMainWindow):
             )
         )
 
-        self.setMinimumSize(
-            1000,
-            650
-        )
-
         self._build_interface()
         self._build_menu()
         self._restore_ui_state()
+
+        self._append_log(
+            f"{APP_NAME} {APP_VERSION} started.",
+            "INFO"
+        )
 
         QTimer.singleShot(
             0,
@@ -726,7 +746,7 @@ class MainWindow(QMainWindow):
             self.log_title
         )
 
-        self.log_output = QTextEdit()
+        self.log_output = QPlainTextEdit()
 
         self.log_output.setReadOnly(
             True
@@ -740,8 +760,60 @@ class MainWindow(QMainWindow):
             150
         )
 
+        self.log_output.setStyleSheet(
+            "font-family: monospace;"
+        )
+
         main_layout.addWidget(
             self.log_output
+        )
+
+        log_button_layout = QHBoxLayout()
+        log_button_layout.setContentsMargins(
+            0,
+            0,
+            0,
+            0
+        )
+
+        self.copy_log_button = QPushButton(
+            "Copy all"
+        )
+        self.copy_log_button.clicked.connect(
+            self._copy_live_log
+        )
+
+        self.save_log_button = QPushButton(
+            "Save as..."
+        )
+        self.save_log_button.clicked.connect(
+            self._save_live_log
+        )
+
+        self.clear_log_button = QPushButton(
+            "Clear"
+        )
+        self.clear_log_button.clicked.connect(
+            self._clear_live_log
+        )
+
+        log_button_layout.addWidget(
+            self.copy_log_button
+        )
+        log_button_layout.addWidget(
+            self.save_log_button
+        )
+        log_button_layout.addStretch(1)
+        log_button_layout.addWidget(
+            self.clear_log_button
+        )
+
+        self.log_button_widget = QWidget()
+        self.log_button_widget.setLayout(
+            log_button_layout
+        )
+        main_layout.addWidget(
+            self.log_button_widget
         )
 
         self.log_visible = True
@@ -1255,7 +1327,8 @@ class MainWindow(QMainWindow):
             return
 
         self._append_log(
-            f"Trainer removed for {game.name}."
+            f"Trainer removed for {game.name}.",
+            "OK"
         )
 
         self.scan_games(
@@ -1320,7 +1393,8 @@ class MainWindow(QMainWindow):
             return
 
         self._append_log(
-            f"Launch script exported: {target_path}"
+            f"Launch script exported: {target_path}",
+            "OK"
         )
 
         QMessageBox.information(
@@ -1490,6 +1564,16 @@ class MainWindow(QMainWindow):
         event
     ):
 
+        if self._session_is_starting():
+
+            self._close_after_session_thread = True
+
+            if not self.session_cancel_requested:
+                self._cancel_active_launch()
+
+            event.ignore()
+            return
+
         self._save_ui_state()
 
         super().closeEvent(
@@ -1526,6 +1610,10 @@ class MainWindow(QMainWindow):
             self.log_visible
         )
 
+        self.log_button_widget.setVisible(
+            self.log_visible
+        )
+
         if hasattr(self, "show_log_action"):
 
             self.show_log_action.blockSignals(True)
@@ -1534,6 +1622,20 @@ class MainWindow(QMainWindow):
             )
             self.show_log_action.blockSignals(False)
 
+        self._apply_fixed_window_size()
+
+
+    def _apply_fixed_window_size(self):
+
+        target_size = (
+            MAIN_WINDOW_SIZE_WITH_LOG
+            if self.log_visible
+            else MAIN_WINDOW_SIZE_WITHOUT_LOG
+        )
+
+        self.setFixedSize(
+            *target_size
+        )
 
 
     def _show_log_toggled(
@@ -1624,15 +1726,97 @@ class MainWindow(QMainWindow):
 
     def _append_log(
         self,
-        message
+        message,
+        level="INFO"
     ):
 
-        self.logger.info(
+        text = str(
             message
         )
 
-        self.log_output.append(
-            message
+        lines = text.splitlines() or [""]
+
+        for line in lines:
+
+            self.log_output.appendPlainText(
+                format_live_log_entry(
+                    line,
+                    level
+                )
+            )
+
+
+    def _copy_live_log(self):
+
+        QApplication.clipboard().setText(
+            self.log_output.toPlainText()
+        )
+
+        self.statusBar().showMessage(
+            "Live Log copied to clipboard",
+            3000
+        )
+
+
+    def _save_live_log(self):
+
+        default_path = (
+            Path.home()
+            / (
+                "TrainerBridge-log-"
+                f"{time.strftime('%Y%m%d-%H%M%S')}.txt"
+            )
+        )
+
+        target_file, _ = QFileDialog.getSaveFileName(
+            self,
+            "Save Live Log",
+            str(default_path),
+            "Text files (*.txt);;All files (*)"
+        )
+
+        if not target_file:
+            return
+
+        target_path = Path(
+            target_file
+        )
+
+        if not target_path.suffix:
+            target_path = target_path.with_suffix(
+                ".txt"
+            )
+
+        try:
+
+            target_path.write_text(
+                self.log_output.toPlainText(),
+                encoding="utf-8"
+            )
+
+        except OSError as error:
+
+            QMessageBox.critical(
+                self,
+                "Live Log save failed",
+                str(error)
+            )
+
+            return
+
+        self.statusBar().showMessage(
+            f"Live Log saved: {target_path}",
+            5000
+        )
+
+
+    def _clear_live_log(self):
+
+        self.log_output.clear()
+
+        self.statusBar().showMessage(
+            "Live Log cleared",
+            3000
         )
 
 
@@ -1707,7 +1891,8 @@ class MainWindow(QMainWindow):
             )
 
             self._append_log(
-                f"Scan failed: {error}"
+                f"Scan failed: {error}",
+                "ERROR"
             )
 
             return
@@ -1742,7 +1927,8 @@ class MainWindow(QMainWindow):
         else:
 
             self._append_log(
-                "No supported Steam data directory was found."
+                "No supported Steam data directory was found.",
+                "WARNING"
             )
 
         self._populate_game_tree()
@@ -1764,7 +1950,8 @@ class MainWindow(QMainWindow):
         )
 
         self._append_log(
-            f"Found {len(self.games)} Steam games."
+            f"Found {len(self.games)} Steam games.",
+            "OK"
         )
 
 
@@ -2085,7 +2272,12 @@ class MainWindow(QMainWindow):
         if not trainer_process:
             return False
 
-        return trainer_process.poll() is None
+        return trainer_process_is_running(
+            trainer_process,
+            self.active_session.get(
+                "trainer_process_group"
+            )
+        )
 
 
     def _verified_game_is_running(
@@ -2362,13 +2554,15 @@ class MainWindow(QMainWindow):
             )
 
             self._append_log(
-                f"Trainer import failed: {error}"
+                f"Trainer import failed: {error}",
+                "ERROR"
             )
 
             return
 
         self._append_log(
-            f"Trainer imported: {target_file}"
+            f"Trainer imported: {target_file}",
+            "OK"
         )
 
         QMessageBox.information(
@@ -2584,7 +2778,8 @@ class MainWindow(QMainWindow):
             return False
 
         self._append_log(
-            "Granted Steam Flatpak read-only access to the trainer folder."
+            "Granted Steam Flatpak read-only access to the trainer folder.",
+            "OK"
         )
 
         return True
@@ -2666,6 +2861,10 @@ class MainWindow(QMainWindow):
             self._session_cancelled
         )
 
+        self.session_worker.progress.connect(
+            self._session_progress
+        )
+
         self.session_worker.finished.connect(
             self.session_thread.quit
         )
@@ -2699,6 +2898,19 @@ class MainWindow(QMainWindow):
         self.session_thread.start()
 
 
+    @Slot(str, str)
+    def _session_progress(
+        self,
+        level,
+        message
+    ):
+
+        self._append_log(
+            message,
+            level
+        )
+
+
     def _cancel_active_launch(self):
 
         if not self._session_is_starting():
@@ -2710,8 +2922,8 @@ class MainWindow(QMainWindow):
         self.session_cancel_requested = True
 
         self._append_log(
-            "Cancelling the automatic launch sequence. "
-            "The game will not be stopped."
+            "Launch cancellation requested. The game will not be stopped.",
+            "WARNING"
         )
 
         self.statusBar().showMessage(
@@ -2743,24 +2955,13 @@ class MainWindow(QMainWindow):
             game.appid
         )
 
-        self._append_log(
-            f"Detected {game.name}."
-        )
-
-        self._append_log(
-            f"Game executable: {runtime.game_executable}"
-        )
-
-        self._append_log(
-            f"Game PID: {runtime.game_pid}"
-        )
-
         if action == "game":
 
             self.active_session = None
 
             self._append_log(
-                "Proton session verified. Launch Trainer is now available."
+                "Proton session verified. Launch Trainer is now available.",
+                "OK"
             )
 
             self.statusBar().showMessage(
@@ -2771,10 +2972,6 @@ class MainWindow(QMainWindow):
 
             self.active_session = session
 
-            self._append_log(
-                "Trainer started."
-            )
-
             self.statusBar().showMessage(
                 "Trainer is running"
             )
@@ -2782,10 +2979,6 @@ class MainWindow(QMainWindow):
         else:
 
             self.active_session = session
-
-            self._append_log(
-                "Trainer started."
-            )
 
             self.statusBar().showMessage(
                 "Game and trainer are running"
@@ -2809,7 +3002,8 @@ class MainWindow(QMainWindow):
         )
 
         self._append_log(
-            cancel_message
+            cancel_message,
+            "WARNING"
         )
 
         self.statusBar().showMessage(
@@ -2834,7 +3028,8 @@ class MainWindow(QMainWindow):
         self.active_session = None
 
         self._append_log(
-            f"Launch failed: {message}"
+            f"Launch failed: {message}",
+            "ERROR"
         )
 
         self.statusBar().showMessage(
@@ -2852,16 +3047,24 @@ class MainWindow(QMainWindow):
     def _session_thread_finished(self):
 
         thread = self.session_thread
+        close_after_thread = self._close_after_session_thread
 
         self.session_thread = None
         self.session_worker = None
         self.session_action = None
         self.session_cancel_requested = False
+        self._close_after_session_thread = False
 
         if thread:
             thread.deleteLater()
 
         self._update_action_buttons()
+
+        if close_after_thread:
+            QTimer.singleShot(
+                0,
+                self.close
+            )
 
 
     def _show_early_trainer_exit_warning(
@@ -2954,10 +3157,41 @@ class MainWindow(QMainWindow):
                 self.verified_game_appid = None
 
                 self._append_log(
-                    f"Verified game {stopped_appid} exited."
+                    f"Verified game {stopped_appid} exited.",
+                    "INFO"
                 )
 
-                if not self._trainer_is_running():
+                if self._trainer_is_running() and self.active_session:
+
+                    trainer_process = self.active_session.get(
+                        "trainer_process"
+                    )
+
+                    self.active_session[
+                        "trainer_stop_reason"
+                    ] = "game_exit"
+
+                    self.active_session[
+                        "trainer_stop_requested_at"
+                    ] = time.monotonic()
+
+                    request_trainer_process_stop(
+                        trainer_process,
+                        process_group=self.active_session.get(
+                            "trainer_process_group"
+                        )
+                    )
+
+                    self._append_log(
+                        "Game exited; stopping the TrainerBridge-launched trainer...",
+                        "INFO"
+                    )
+
+                    self.statusBar().showMessage(
+                        "Game exited - stopping trainer"
+                    )
+
+                else:
 
                     self.statusBar().showMessage(
                         "Game exited"
@@ -2969,17 +3203,63 @@ class MainWindow(QMainWindow):
 
         if self.active_session:
 
-            trainer_process = self.active_session.get(
+            session = self.active_session
+
+            trainer_process = session.get(
                 "trainer_process"
             )
 
             if trainer_process:
 
-                return_code = trainer_process.poll()
+                trainer_running = trainer_process_is_running(
+                    trainer_process,
+                    session.get(
+                        "trainer_process_group"
+                    )
+                )
 
-                if return_code is not None:
+                stop_requested_at = session.get(
+                    "trainer_stop_requested_at"
+                )
 
-                    session = self.active_session
+                if trainer_running and stop_requested_at is not None:
+
+                    stop_wait_seconds = (
+                        time.monotonic()
+                        -
+                        float(stop_requested_at)
+                    )
+
+                    if (
+                        stop_wait_seconds
+                        >=
+                        TRAINER_AUTO_STOP_GRACE_SECONDS
+                        and
+                        not session.get(
+                            "trainer_force_stop_requested"
+                        )
+                    ):
+
+                        session[
+                            "trainer_force_stop_requested"
+                        ] = True
+
+                        request_trainer_process_stop(
+                            trainer_process,
+                            process_group=session.get(
+                                "trainer_process_group"
+                            ),
+                            force=True
+                        )
+
+                        self._append_log(
+                            "Trainer did not exit promptly; forcing shutdown.",
+                            "WARNING"
+                        )
+
+                elif not trainer_running:
+
+                    return_code = trainer_process.poll()
 
                     game = session.get(
                         "game"
@@ -2987,6 +3267,10 @@ class MainWindow(QMainWindow):
 
                     trainer_started_at = session.get(
                         "trainer_started_at"
+                    )
+
+                    stop_reason = session.get(
+                        "trainer_stop_reason"
                     )
 
                     runtime_seconds = None
@@ -3002,12 +3286,29 @@ class MainWindow(QMainWindow):
 
                     if game:
 
-                        self._append_log(
-                            (
-                                f"Trainer for {game.name} exited "
-                                f"with code {return_code}."
+                        if stop_reason == "game_exit":
+
+                            self._append_log(
+                                (
+                                    f"Trainer for {game.name} stopped "
+                                    "because the game exited."
+                                ),
+                                "OK"
                             )
-                        )
+
+                        else:
+
+                            self._append_log(
+                                (
+                                    f"Trainer for {game.name} exited "
+                                    f"with code {return_code}."
+                                ),
+                                (
+                                    "OK"
+                                    if return_code == 0
+                                    else "WARNING"
+                                )
+                            )
 
                     self.active_session = None
 
@@ -3017,6 +3318,12 @@ class MainWindow(QMainWindow):
                             "Trainer exited - game is still running"
                         )
 
+                    elif stop_reason == "game_exit":
+
+                        self.statusBar().showMessage(
+                            "Game and trainer exited"
+                        )
+
                     else:
 
                         self.statusBar().showMessage(
@@ -3024,6 +3331,8 @@ class MainWindow(QMainWindow):
                         )
 
                     exited_early = (
+                        stop_reason != "game_exit"
+                        and
                         return_code != 0
                         and
                         runtime_seconds is not None
@@ -3043,7 +3352,8 @@ class MainWindow(QMainWindow):
 
                         self._append_log(
                             "The trainer exited shortly after launch. "
-                            "It may require additional Prefix Components."
+                            "It may require additional Prefix Components.",
+                            "WARNING"
                         )
 
                         if show_early_exit_hint:
@@ -3139,8 +3449,8 @@ def run_self_test():
     checks.append(
         (
             "application metadata",
-            bool(APP_NAME and APP_DISPLAY_VERSION),
-            f"{APP_NAME} {APP_DISPLAY_VERSION}"
+            bool(APP_NAME and APP_VERSION),
+            f"{APP_NAME} {APP_VERSION}"
         )
     )
 
@@ -3174,50 +3484,89 @@ def main():
 
         return run_self_test()
 
-    log_file = setup_logging()
+    instance_lock = SingleInstanceLock()
 
-    print(
-        f"Log file: {log_file}"
-    )
+    if not instance_lock.acquire():
 
-    application = QApplication(
-        sys.argv
-    )
+        print(
+            "TrainerBridge is already running."
+        )
 
-    application.setOrganizationName(
-        APP_NAME
-    )
+        application = QApplication(
+            sys.argv
+        )
 
-    application.setApplicationName(
-        APP_NAME
-    )
+        application.setApplicationName(
+            APP_NAME
+        )
 
-    application.setApplicationDisplayName(
-        APP_NAME
-    )
-
-    application.setApplicationVersion(
-        APP_DISPLAY_VERSION
-    )
-
-    application.setWindowIcon(
-        QIcon(
-            str(
-                resource_path(
-                    "assets/trainerbridge.png"
+        application.setWindowIcon(
+            QIcon(
+                str(
+                    resource_path(
+                        "assets/trainerbridge.png"
+                    )
                 )
             )
         )
-    )
 
-    apply_theme(
-        application
-    )
+        QMessageBox.information(
+            None,
+            "TrainerBridge is already running",
+            (
+                "Another TrainerBridge instance is already running.\n\n"
+                "Close the existing instance before starting TrainerBridge again."
+            )
+        )
 
-    window = MainWindow()
-    window.show()
+        return 0
 
-    return application.exec()
+    try:
+
+        setup_logging()
+
+        application = QApplication(
+            sys.argv
+        )
+
+        application.setOrganizationName(
+            APP_NAME
+        )
+
+        application.setApplicationName(
+            APP_NAME
+        )
+
+        application.setApplicationDisplayName(
+            APP_NAME
+        )
+
+        application.setApplicationVersion(
+            APP_VERSION
+        )
+
+        application.setWindowIcon(
+            QIcon(
+                str(
+                    resource_path(
+                        "assets/trainerbridge.png"
+                    )
+                )
+            )
+        )
+
+        apply_theme(
+            application
+        )
+
+        window = MainWindow()
+        window.show()
+
+        return application.exec()
+
+    finally:
+
+        instance_lock.release()
 
 
 if __name__ == "__main__":

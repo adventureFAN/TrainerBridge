@@ -254,7 +254,7 @@ class ProcessMonitor:
         if "SteamLaunch" not in cmdline:
             return False
 
-        if f"AppId={appid}" not in cmdline:
+        if f"AppId={appid}" not in process["args"]:
             return False
 
 

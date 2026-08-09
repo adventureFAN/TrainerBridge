@@ -111,6 +111,7 @@ remove_path "dist"
 remove_path "ui"
 remove_path "tools"
 
+find . -type f -name "*.before-step*" -print -delete
 find . -type d -name "__pycache__" -prune -exec rm -rf {} +
 find . -type f \( -name "*.pyc" -o -name "*.pyo" \) -delete
 

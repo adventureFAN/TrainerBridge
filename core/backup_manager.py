@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from core.paths import BACKUP_DIR
+from core.validation import validate_steam_appid
 
 
 FICLONE = 0x40049409
@@ -61,7 +62,7 @@ class _ProgressReader:
 class BackupManager:
     def __init__(self, game):
         self.game = game
-        self.appid = str(game.appid)
+        self.appid = validate_steam_appid(game.appid)
         self.source_path = (
             Path(game.prefix)
             if game.prefix

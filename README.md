@@ -41,28 +41,28 @@ It does **not** include trainers, download trainers, modify game files, or bypas
 The recommended package is the AppImage from the [latest GitHub release](https://github.com/adventureFAN/TrainerBridge/releases/latest).
 
 ```bash
-chmod +x TrainerBridge-1.0.0-x86_64.AppImage
-./TrainerBridge-1.0.0-x86_64.AppImage
+chmod +x TrainerBridge-<version>-x86_64.AppImage
+./TrainerBridge-<version>-x86_64.AppImage
 ```
 
 When FUSE is unavailable:
 
 ```bash
 APPIMAGE_EXTRACT_AND_RUN=1 \
-  ./TrainerBridge-1.0.0-x86_64.AppImage
+  ./TrainerBridge-<version>-x86_64.AppImage
 ```
 
 A portable `.tar.xz` archive is also provided:
 
 ```bash
-tar -xf TrainerBridge-1.0.0-x86_64.tar.xz
+tar -xf TrainerBridge-<version>-x86_64.tar.xz
 ./TrainerBridge/TrainerBridge
 ```
 
 Verify downloads with the matching `.sha256` file:
 
 ```bash
-sha256sum -c TrainerBridge-1.0.0-x86_64.AppImage.sha256
+sha256sum -c TrainerBridge-<version>-x86_64.AppImage.sha256
 ```
 
 ## 🚀 Basic usage
@@ -144,7 +144,7 @@ Use the [bug report template](https://github.com/adventureFAN/TrainerBridge/issu
 - game name and AppID
 - filesystem and mount path of the Steam library
 - reproduction steps
-- relevant text from `~/.local/share/TrainerBridge/logs/`
+- relevant text copied from the in-app **Live Log** or saved manually with **Save as...**
 
 Do not upload trainer executables, game files, personal data, or full prefixes.
 

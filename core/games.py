@@ -1,6 +1,10 @@
 import vdf
 
 from core.models import GameProfile
+from core.validation import (
+    build_steam_game_path,
+    validate_steam_appid
+)
 
 
 def is_ignored_app(name):
@@ -47,9 +51,25 @@ def find_games(libraries):
 
                 app = data["AppState"]
 
-                appid = app["appid"]
+                appid = validate_steam_appid(
+                    app["appid"]
+                )
                 name = app["name"]
                 install_dir = app.get("installdir")
+
+                game_path = None
+
+                if install_dir:
+                    try:
+                        game_path = build_steam_game_path(
+                            library,
+                            install_dir
+                        )
+                    except ValueError:
+                        print(
+                            "Ignored an unsafe Steam installdir; "
+                            "the game-folder action is disabled for this entry."
+                        )
 
                 if appid in found_appids:
                     continue
@@ -76,14 +96,7 @@ def find_games(libraries):
                             if prefix.exists()
                             else None
                         ),
-                        game_path=(
-                            library
-                            / "steamapps"
-                            / "common"
-                            / install_dir
-                            if install_dir
-                            else None
-                        )
+                        game_path=game_path
                     )
                 )
 

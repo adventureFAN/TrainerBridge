@@ -61,10 +61,37 @@ COMPONENT_CATEGORY_ROLE = COMPONENT_NAME_ROLE + 2
 COMPONENT_DESCRIPTION_ROLE = COMPONENT_NAME_ROLE + 3
 
 COMPONENTS_GEOMETRY_KEY = "components/geometry"
+COMPONENTS_WINDOW_SIZE = (1000, 700)
 COMPONENTS_LOG_VISIBLE_KEY = "components/log_visible"
 COMPONENTS_CURRENT_TAB_KEY = "components/current_tab"
 COMPONENTS_INSTALLED_ONLY_KEY = "components/installed_only"
 
+
+
+class ProtontricksDetectWorker(QObject):
+
+    finished = Signal(object)
+    failed = Signal(str)
+
+
+    @Slot()
+    def run(self):
+
+        try:
+
+            manager = ProtontricksManager.detect()
+
+        except Exception as error:
+
+            self.failed.emit(
+                f"{type(error).__name__}: {error}"
+            )
+
+            return
+
+        self.finished.emit(
+            manager
+        )
 
 
 class ComponentLoadWorker(QObject):
@@ -269,8 +296,12 @@ class ComponentsDialog(QDialog):
         self.settings = application_settings()
 
         self.game = game
-        self.manager = ProtontricksManager.detect()
+        self.manager = None
         self.backup_manager = BackupManager(game)
+
+        self.detect_thread = None
+        self.detect_worker = None
+        self.detect_error = None
 
         self.components = []
         self.component_trees = {}
@@ -303,18 +334,9 @@ class ComponentsDialog(QDialog):
             f"Prefix Components - {game.name}"
         )
 
-        self.resize(
-            1000,
-            700
-        )
-
-        self.setMinimumSize(
-            840,
-            580
-        )
-
         self._build_interface()
         self._restore_ui_state()
+        self.setFixedSize(*COMPONENTS_WINDOW_SIZE)
 
         QTimer.singleShot(
             0,
@@ -416,7 +438,7 @@ class ComponentsDialog(QDialog):
         else:
 
             protontricks_text = (
-                "Not found"
+                "Detecting..."
             )
 
         self.protontricks_label = QLabel(
@@ -996,7 +1018,132 @@ class ComponentsDialog(QDialog):
 
     def _initial_load(self):
 
+        self._start_protontricks_detection()
+
+
+    def _start_protontricks_detection(self):
+
+        if self.detect_thread is not None:
+            return
+
+        self.detect_error = None
+        self.manager = None
+        self.protontricks_label.setText(
+            "Detecting..."
+        )
+
+        self._set_busy(
+            True,
+            "Detecting Protontricks..."
+        )
+
+        self.detect_thread = QThread(self)
+        self.detect_worker = ProtontricksDetectWorker()
+
+        self.detect_worker.moveToThread(
+            self.detect_thread
+        )
+
+        self.detect_thread.started.connect(
+            self.detect_worker.run
+        )
+
+        self.detect_worker.finished.connect(
+            self._protontricks_detected
+        )
+
+        self.detect_worker.failed.connect(
+            self._protontricks_detection_failed
+        )
+
+        self.detect_worker.finished.connect(
+            self.detect_thread.quit
+        )
+
+        self.detect_worker.failed.connect(
+            self.detect_thread.quit
+        )
+
+        self.detect_worker.finished.connect(
+            self.detect_worker.deleteLater
+        )
+
+        self.detect_worker.failed.connect(
+            self.detect_worker.deleteLater
+        )
+
+        self.detect_thread.finished.connect(
+            self._detect_thread_finished
+        )
+
+        self.detect_thread.start()
+
+
+    @Slot(object)
+    def _protontricks_detected(
+        self,
+        manager
+    ):
+
+        self.manager = manager
+
+
+    @Slot(str)
+    def _protontricks_detection_failed(
+        self,
+        message
+    ):
+
+        self.detect_error = message
+
+
+    @Slot()
+    def _detect_thread_finished(self):
+
+        thread = self.detect_thread
+
+        self.detect_thread = None
+        self.detect_worker = None
+
+        if thread:
+            thread.deleteLater()
+
+        self._set_busy(
+            False
+        )
+
+        if self.detect_error:
+
+            self.protontricks_label.setText(
+                "Detection failed"
+            )
+
+            self.status_label.setText(
+                "Protontricks detection failed."
+            )
+
+            self.output_field.setPlainText(
+                self.detect_error
+            )
+
+            self._set_log_visible(
+                True
+            )
+
+            QMessageBox.critical(
+                self,
+                "Protontricks detection failed",
+                self.detect_error
+            )
+
+            self._update_buttons()
+            return
+
         if not self.manager:
+
+            self.protontricks_label.setText(
+                "Not found"
+            )
 
             self.status_label.setText(
                 "Protontricks is not installed."
@@ -1013,17 +1160,25 @@ class ComponentsDialog(QDialog):
             )
 
             self._update_buttons()
-
             return
 
-        self.load_components(
-            force_refresh=False
+        self.protontricks_label.setText(
+            self.manager.installation.display_name
+        )
+
+        QTimer.singleShot(
+            0,
+            lambda: self.load_components(
+                force_refresh=False
+            )
         )
 
 
     def _is_busy(self):
 
         return (
+            self.detect_thread is not None
+            or
             self.load_thread is not None
             or
             self.install_thread is not None
@@ -1164,7 +1319,6 @@ class ComponentsDialog(QDialog):
         )
 
 
-    @Slot(object)
     @Slot(object)
     def _components_loaded(
         self,
